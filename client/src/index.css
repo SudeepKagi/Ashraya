@@ -1,0 +1,26 @@
+/* FILE: client/src/index.css */
+@import "tailwindcss";
+
+/* Ashraya global styles */
+:root {
+  --color-primary: #6366f1;
+  --color-secondary: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+}
+
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Accessibility: large text mode */
+.large-text {
+  font-size: 1.25rem !important;
+  line-height: 1.8 !important;
+}
+
+/* High contrast mode */
+.high-contrast {
+  filter: contrast(1.5);
+}
