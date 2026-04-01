@@ -2,5 +2,14 @@
 const express = require('express');
 const router = express.Router();
 const { protect, requireRole } = require('../middleware/auth');
-router.get('/elder', protect, requireRole('guardian'), (req, res) => res.json({ success: true, message: 'Guardian route active' }));
+const {
+    getLinkedElder, getAlerts, getHistory, getHealthTrend, updateElderAccessibility
+} = require('../controllers/guardianController');
+
+router.get('/elder', protect, requireRole('guardian'), getLinkedElder);
+router.get('/alerts', protect, requireRole('guardian'), getAlerts);
+router.get('/history', protect, requireRole('guardian'), getHistory);
+router.get('/health-trend/:type', protect, requireRole('guardian'), getHealthTrend);
+router.put('/elder/accessibility', protect, requireRole('guardian'), updateElderAccessibility);
+
 module.exports = router;

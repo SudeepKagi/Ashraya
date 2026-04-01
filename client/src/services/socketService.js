@@ -3,11 +3,7 @@ import { io } from 'socket.io-client';
 
 let socket = null;
 
-/**
- * Call once after login — connects and joins the user's room
- * @param {string} userId
- */
-export const connectSocket = (userId) => {
+export const connectSocket = (userId, role = 'elder') => {
     if (socket?.connected) return socket;
 
     socket = io(import.meta.env.VITE_SOCKET_URL, {
@@ -17,25 +13,17 @@ export const connectSocket = (userId) => {
 
     socket.on('connect', () => {
         console.log('Socket connected:', socket.id);
-        // Join personal room so server can target this user
-        socket.emit('join_room', { userId });
+        // Send role so server puts guardian in correct room
+        socket.emit('join_room', { userId, role });
     });
 
-    socket.on('disconnect', () => {
-        console.log('Socket disconnected');
-    });
+    socket.on('disconnect', () => console.log('Socket disconnected'));
 
     return socket;
 };
 
-/**
- * Get the active socket instance
- */
 export const getSocket = () => socket;
 
-/**
- * Disconnect cleanly (call on logout)
- */
 export const disconnectSocket = () => {
     socket?.disconnect();
     socket = null;

@@ -7,12 +7,12 @@ const healthLogSchema = new mongoose.Schema(
         timestamp: { type: Date, default: Date.now },
         type: {
             type: String,
-            enum: ['hr', 'spo2', 'fall', 'bp', 'steps'],
+            enum: ['hr', 'spo2', 'fall', 'bp', 'steps', 'accelerometer'],  // ← added accelerometer
             required: true
         },
         value: { type: mongoose.Schema.Types.Mixed, required: true },
         isAnomaly: { type: Boolean, default: false },
-        anomalyReason: { type: String, default: null },   // ← added
+        anomalyReason: { type: String, default: null },
         alertSent: { type: Boolean, default: false },
         notes: { type: String }
     },
