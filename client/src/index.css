@@ -1293,8 +1293,8 @@ select {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(4, 10, 22, 0.88);
-  backdrop-filter: blur(10px);
+  background: rgba(4, 10, 22, 0.56);
+  backdrop-filter: blur(6px);
 }
 
 .medicine-modal,
@@ -1312,7 +1312,12 @@ select {
 }
 
 .medicine-modal {
-  width: min(1120px, 100%);
+  width: min(980px, 100%);
+}
+
+.emotion-modal {
+  width: min(760px, 100%);
+  height: min(calc(100vh - 56px), 760px);
 }
 
 .medicine-modal-header,
@@ -1334,7 +1339,7 @@ select {
 
 .medicine-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(270px, 330px) minmax(0, 1fr);
   gap: 20px;
   align-items: stretch;
   height: 100%;
@@ -1361,6 +1366,110 @@ select {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+.compact-task-modal {
+  border-radius: 24px;
+  width: min(920px, calc(100vw - 48px));
+  height: auto;
+  max-height: min(88vh, 760px);
+}
+
+.compact-task-body {
+  padding: 18px;
+  overflow-y: auto;
+  height: auto;
+  max-height: calc(min(88vh, 760px) - 84px);
+}
+
+.compact-task-grid {
+  gap: 16px;
+  height: auto;
+  align-items: start;
+}
+
+.compact-side-panel {
+  gap: 14px;
+  max-height: 100%;
+}
+
+.compact-list {
+  margin-top: 14px;
+}
+
+.compact-stage {
+  gap: 14px;
+  justify-content: flex-start;
+}
+
+.compact-stage-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: auto;
+  flex: 0 0 auto;
+}
+
+.compact-stage-single {
+  width: 100%;
+  max-width: 680px;
+}
+
+.compact-stage-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.compact-stage-placeholder {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.compact-placeholder-card {
+  width: 100%;
+  min-height: 140px;
+  border-radius: 22px;
+  border: 1px dashed rgba(0, 180, 166, 0.24);
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 24px;
+}
+
+.compact-camera-frame {
+  min-height: 260px;
+}
+
+.compact-actions {
+  margin-top: 8px;
+}
+
+.compact-task-modal .medicine-actions {
+  position: static;
+  background: transparent;
+  padding-top: 0;
+}
+
+.compact-task-modal .medicine-side-panel,
+.compact-task-modal .medicine-stage,
+.compact-task-modal .emotion-stage {
+  overflow: visible;
+}
+
+.emotion-compact-modal {
+  width: min(640px, calc(100vw - 48px));
+  max-height: min(78vh, 560px);
+}
+
+.emotion-compact-modal .compact-task-body {
+  max-height: calc(min(78vh, 560px) - 84px);
 }
 
 .medicine-list {
@@ -1439,6 +1548,12 @@ select {
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border-subtle);
+}
+
+.medicine-progress-card.compact,
+.medicine-result-card.compact {
+  margin-top: 0;
+  padding: 16px;
 }
 
 .medicine-result-card.success {
@@ -1646,6 +1761,11 @@ body.hearing-mode .live-dot {
   .medicine-stage,
   .emotion-stage {
     overflow: visible;
+  }
+
+  .compact-stage-top {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 

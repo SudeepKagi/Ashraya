@@ -31,7 +31,9 @@ const FallDetector = ({ hearingImpaired = false, onVitalsUpdate }) => {
         simulateFall,
         startSimulation,
         registerSampleCallback,
-        isSimulating
+        isSimulating,
+        deviceName,
+        debugLog
     } = useBluetooth();
     const { speak } = useVoice();
 
@@ -274,7 +276,11 @@ const FallDetector = ({ hearingImpaired = false, onVitalsUpdate }) => {
                     </div>
                     <div>
                         <p className="text-sm font-semibold text-white">Smartwatch Safety Link</p>
-                        <p className="text-xs muted-text mt-1">Live vitals, fall detection, and guardian escalation.</p>
+                        <p className="text-xs muted-text mt-1">
+                            {deviceName
+                                ? <span title="Paired device">📡 {deviceName}</span>
+                                : 'Live vitals, fall detection, and guardian escalation.'}
+                        </p>
                     </div>
                 </div>
                 <span className={`status-badge ${connectionTone}`}>
@@ -316,6 +322,22 @@ const FallDetector = ({ hearingImpaired = false, onVitalsUpdate }) => {
                         ? 'Connected to the current wearable. Heart rate and fall motion are live, while BP depends on device support.'
                         : 'Pair a compatible watch, or switch to demo mode for the hackathon flow.'}
             </p>
+
+            {debugLog && debugLog.length > 0 ? (
+                <div style={{
+                    background: 'rgba(0,0,0,0.4)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    marginBottom: '8px',
+                    fontFamily: 'monospace',
+                    fontSize: '11px',
+                    color: '#9effa0',
+                    lineHeight: '1.6'
+                }}>
+                    {debugLog.map((line, i) => <div key={i}>› {line}</div>)}
+                </div>
+            ) : null}
 
             <div className="watch-actions">
                 <button

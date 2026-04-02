@@ -1,5 +1,4 @@
-// FILE: client/src/components/elder/MedicineVerifier.jsx
-import { useState, useRef, useEffect } from 'react';
+﻿import { useState, useRef, useEffect } from 'react';
 import { createWorker } from 'tesseract.js';
 import useVoice from '../../hooks/useVoice';
 import api from '../../services/api';
@@ -27,7 +26,8 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
     useEffect(() => () => stopCamera(), []);
 
     useEffect(() => {
-        if (phase !== 'camera') return;
+        if (phase !== 'camera') return undefined;
+
         const initCamera = async () => {
             try {
                 await new Promise((resolve) => setTimeout(resolve, 100));
@@ -36,6 +36,7 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
                     setPhase('intro');
                     return;
                 }
+
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: { ideal: 'environment' },
@@ -43,6 +44,7 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
                         height: { ideal: 720 }
                     }
                 });
+
                 streamRef.current = stream;
                 videoRef.current.srcObject = stream;
                 videoRef.current.onloadedmetadata = () => videoRef.current.play();
@@ -53,18 +55,23 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
                 setPhase('intro');
             }
         };
+
         initCamera();
+        return undefined;
     }, [phase, speak]);
 
     const checkAgainstPrescription = (ocrText, medicines) => {
         if (!medicines || medicines.length === 0) {
             return { matched: false, medicine: null, confidence: 0, reason: 'No prescription data found.' };
         }
+
         let bestMatch = null;
         let bestScore = 0;
+
         medicines.forEach((medicine) => {
             const name = medicine.name?.toUpperCase() || '';
             if (!name) return;
+
             if (ocrText.includes(name)) {
                 const score = name.length / Math.max(ocrText.length, 1);
                 if (score > bestScore) {
@@ -72,6 +79,7 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
                     bestMatch = medicine;
                 }
             }
+
             if (name.length >= 4) {
                 const partial = name.slice(0, Math.ceil(name.length * 0.7));
                 if (ocrText.includes(partial) && 0.5 > bestScore) {
@@ -80,13 +88,16 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
                 }
             }
         });
+
         return {
             matched: Boolean(bestMatch),
             medicine: bestMatch?.name || null,
             dosage: bestMatch?.dosage || null,
             times: bestMatch?.times || [],
             confidence: Math.round(bestScore * 100),
-            reason: bestMatch ? `Matched with ${bestMatch.name}.` : 'This does not match the medicines saved in the elder profile.'
+            reason: bestMatch
+                ? `Matched with ${bestMatch.name}.`
+                : 'This does not match the medicines saved in the elder profile.'
         };
     };
 
@@ -100,16 +111,20 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
 
     const captureAndScan = async () => {
         if (!videoRef.current || scanning) return;
+
         setScanning(true);
         setProgress(0);
+
         try {
             const canvas = canvasRef.current;
             canvas.width = videoRef.current.videoWidth || 1280;
             canvas.height = videoRef.current.videoHeight || 720;
             canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
+
             speak('Scanning medicine. Please hold still.');
             stopCamera();
             setPhase('scanning');
+
             const worker = await createWorker('eng', 1, {
                 logger: (message) => {
                     if (message.status === 'recognizing text') {
@@ -117,13 +132,17 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
                     }
                 }
             });
+
             const { data: { text } } = await worker.recognize(canvas);
             await worker.terminate();
+
             const extractedText = text.trim().toUpperCase();
             setOcrResult(extractedText);
             const result = checkAgainstPrescription(extractedText, prescribedMedicines);
             setMatchResult(result);
             setPhase('result');
+            setScanning(false);
+
             if (result.matched) {
                 speak(`Medicine matched. It is ${result.medicine}. Safe to take.`);
             } else {
@@ -143,7 +162,7 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
             notes: `Medicine verified via OCR. Matched: ${matchResult?.medicine || 'unverified'}`
         });
         speak('Medicine confirmed. Task marked as done.');
-        onComplete?.();
+        if (onComplete) onComplete();
         onClose();
     };
 
@@ -163,7 +182,7 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
 
     return (
         <div className="medicine-modal-shell">
-            <div className="medicine-modal">
+            <div className="medicine-modal compact-task-modal">
                 <div className="medicine-modal-header">
                     <div>
                         <p className="eyebrow">Medication Safety</p>
@@ -172,34 +191,170 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
                     </div>
                     <button onClick={closeVerifier} className="header-icon-button" aria-label="Close medicine verifier">×</button>
                 </div>
-                <div className="medicine-modal-body">
-                    <div className="medicine-grid">
-                        <aside className="medicine-side-panel">
-                            <p className="metric-label">Saved Prescription</p>
-                            <h3 className="text-lg font-semibold text-white mt-3">Medicines on file</h3>
-                            <p className="section-subtitle mt-2">Ashraya will compare the scanned strip with the elder's saved prescription.</p>
-                            <div className="medicine-list">
+
+                <div className="medicine-modal-body compact-task-body">
+                    <div className="medicine-grid compact-task-grid">
+                        <aside className="medicine-side-panel compact-side-panel">
+                            <div>
+                                <p className="metric-label">Saved Prescription</p>
+                                <h3 className="text-lg font-semibold text-white mt-3">Medicines on file</h3>
+                                <p className="section-subtitle mt-2">Ashraya compares the scanned strip with the elder's saved medicines.</p>
+                            </div>
+
+                            <div className="medicine-list compact-list">
                                 {prescribedMedicines.length === 0 ? (
-                                    <div className="medicine-list-item"><div><p className="text-sm font-semibold text-white">No prescription data</p><p className="text-xs muted-text mt-1">Add medicines in the elder profile to enable accurate verification.</p></div></div>
+                                    <div className="medicine-list-item">
+                                        <div>
+                                            <p className="text-sm font-semibold text-white">No prescription data</p>
+                                            <p className="text-xs muted-text mt-1">Add medicines in the elder profile for better matching.</p>
+                                        </div>
+                                    </div>
                                 ) : (
                                     prescribedMedicines.map((medicine, index) => (
                                         <div key={`${medicine.name}-${index}`} className="medicine-list-item">
-                                            <div><p className="text-sm font-semibold text-white">{medicine.name}</p><p className="text-xs muted-text mt-1">{medicine.dosage}</p></div>
-                                            <div className="text-right"><p className="text-xs text-white">{medicine.times?.join(', ') || 'No time set'}</p><p className="text-[11px] muted-text mt-1">Scheduled</p></div>
+                                            <div>
+                                                <p className="text-sm font-semibold text-white">{medicine.name}</p>
+                                                <p className="text-xs muted-text mt-1">{medicine.dosage}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-xs text-white">{medicine.times?.join(', ') || 'No time set'}</p>
+                                                <p className="text-[11px] muted-text mt-1">Scheduled</p>
+                                            </div>
                                         </div>
                                     ))
                                 )}
                             </div>
-                            <div className="medicine-progress-card">
-                                <p className="text-sm font-semibold text-white">How to scan well</p>
-                                <ul className="mt-3 space-y-2 text-sm muted-text"><li>Keep the strip flat and steady.</li><li>Bring the printed label inside the guide box.</li><li>Use bright light and avoid glare on the foil.</li></ul>
+
+                            <div className="medicine-progress-card compact">
+                                <p className="text-sm font-semibold text-white">Quick guide</p>
+                                <ul className="mt-3 space-y-2 text-sm muted-text">
+                                    <li>Keep the strip flat and steady.</li>
+                                    <li>Align the medicine name inside the guide box.</li>
+                                    <li>Use good lighting and avoid glare.</li>
+                                </ul>
                             </div>
                         </aside>
-                        <section className="medicine-stage">
-                            {phase === 'intro' ? (<><p className="metric-label">Step 1</p><h3 className="text-xl font-semibold text-white mt-3">Start the medicine check</h3><p className="section-subtitle mt-2">Open the camera, center the label, and let Ashraya compare it with the stored prescription.</p>{error ? <p className="critical-text text-sm mt-4">{error}</p> : null}<div className="medicine-actions"><button onClick={startCamera} className="header-pill-button" aria-label="Start medicine scanner">Start Scanner</button><button onClick={closeVerifier} className="range-pill" aria-label="Cancel medicine scanner">Cancel</button></div></>) : null}
-                            {phase === 'camera' ? (<><p className="metric-label">Step 2</p><h3 className="text-xl font-semibold text-white mt-3">Scan the strip label</h3><p className="section-subtitle mt-2">Place the printed medicine name inside the guide box before scanning.</p><div className="medicine-camera-frame mt-5"><video ref={videoRef} muted playsInline autoPlay /><canvas ref={canvasRef} className="hidden" /><div className="medicine-scan-guide"><div className="medicine-scan-window"><p className="text-sm text-white">Align the medicine name inside this area for the clearest OCR result.</p></div></div></div><div className="medicine-actions"><button onClick={captureAndScan} disabled={scanning} className="header-pill-button" aria-label="Scan medicine now">{scanning ? 'Scanning...' : 'Scan Now'}</button><button onClick={() => { stopCamera(); setPhase('intro'); }} className="range-pill" aria-label="Go back to introduction">Back</button></div></>) : null}
-                            {phase === 'scanning' ? (<><p className="metric-label">Step 3</p><h3 className="text-xl font-semibold text-white mt-3">Reading the medicine text</h3><p className="section-subtitle mt-2">Ashraya is extracting the label and checking it against the prescription.</p><div className="medicine-camera-frame mt-5"><canvas ref={canvasRef} className="preview" /></div><div className="medicine-progress-card"><div className="flex items-center justify-between gap-3"><span className="text-sm text-white">OCR progress</span><span className="text-sm text-white">{progress}%</span></div><div className="progress-bar mt-3"><div className="progress-bar-fill" style={{ width: `${progress}%` }} /></div></div></>) : null}
-                            {phase === 'result' && matchResult ? (<><p className="metric-label">Result</p><h3 className="text-xl font-semibold text-white mt-3">{matchResult.matched ? 'Medication verified successfully' : 'Medicine mismatch detected'}</h3><p className="section-subtitle mt-2">{matchResult.reason}</p><div className={`medicine-result-card ${matchResult.matched ? 'success' : 'danger'}`}><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-semibold text-white">{matchResult.matched ? matchResult.medicine : 'Prescription did not match'}</p><p className="text-xs muted-text mt-1">Confidence {matchResult.confidence}% {matchResult.matched && matchResult.dosage ? `· ${matchResult.dosage}` : ''}</p></div><span className={`status-badge ${matchResult.matched ? 'status-normal' : 'status-critical'}`}><span className="status-dot" />{matchResult.matched ? 'Match' : 'Mismatch'}</span></div>{matchResult.matched ? <p className="text-sm text-white mt-4">Take at: {matchResult.times?.join(', ') || 'No schedule saved'}</p> : null}<div className="medicine-ocr-block">{ocrResult || 'No OCR result available.'}</div></div><div className="medicine-actions">{matchResult.matched ? <button onClick={handleConfirm} className="header-pill-button" aria-label="Confirm medicine and mark task done">Confirm and Mark Done</button> : <><button onClick={handleWrongMedicine} className="emergency-inline-button" aria-label="Alert guardian about wrong medicine">Alert Guardian</button><button onClick={startCamera} className="range-pill" aria-label="Scan medicine again">Try Again</button></>}</div></>) : null}
+
+                        <section className="medicine-stage compact-stage">
+                            {phase === 'intro' && (
+                                <div className="compact-stage-section">
+                                    <div className="compact-stage-top">
+                                        <div>
+                                            <p className="metric-label">Step 1</p>
+                                            <h3 className="text-xl font-semibold text-white mt-3">Start the medicine check</h3>
+                                            <p className="section-subtitle mt-2">Open the camera and place the strip name inside the guide box.</p>
+                                        </div>
+                                        <div className="chart-tooltip">1 of 3</div>
+                                    </div>
+
+                                    {error && <p className="critical-text text-sm mt-4">{error}</p>}
+
+                                    <div className="compact-stage-placeholder">
+                                        <div className="compact-placeholder-card">
+                                            <p className="text-sm font-semibold text-white">Ready to scan</p>
+                                            <p className="text-sm muted-text mt-2">The scanner and action buttons stay inside this panel so you do not need to hunt around the screen.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="medicine-actions compact-actions">
+                                        <button onClick={startCamera} className="header-pill-button" aria-label="Start medicine scanner">Start Scanner</button>
+                                        <button onClick={closeVerifier} className="range-pill" aria-label="Cancel medicine scanner">Cancel</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {phase === 'camera' && (
+                                <div className="compact-stage-section">
+                                    <div className="compact-stage-top">
+                                        <div>
+                                            <p className="metric-label">Step 2</p>
+                                            <h3 className="text-xl font-semibold text-white mt-3">Scan the strip label</h3>
+                                            <p className="section-subtitle mt-2">Keep the printed medicine name inside the guide box and tap scan.</p>
+                                        </div>
+                                        <div className="chart-tooltip">2 of 3</div>
+                                    </div>
+
+                                    <div className="medicine-camera-frame mt-5 compact-camera-frame">
+                                        <video ref={videoRef} muted playsInline autoPlay />
+                                        <canvas ref={canvasRef} className="hidden" />
+                                        <div className="medicine-scan-guide">
+                                            <div className="medicine-scan-window">
+                                                <p className="text-sm text-white">Align the medicine name here</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="medicine-actions compact-actions">
+                                        <button onClick={captureAndScan} disabled={scanning} className="header-pill-button" aria-label="Scan medicine now">{scanning ? 'Scanning...' : 'Scan Now'}</button>
+                                        <button onClick={() => { stopCamera(); setPhase('intro'); }} className="range-pill" aria-label="Go back to introduction">Back</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {phase === 'scanning' && (
+                                <div className="compact-stage-section">
+                                    <div className="compact-stage-top">
+                                        <div>
+                                            <p className="metric-label">Step 3</p>
+                                            <h3 className="text-xl font-semibold text-white mt-3">Reading the medicine text</h3>
+                                            <p className="section-subtitle mt-2">Ashraya is extracting the label and checking it with the prescription.</p>
+                                        </div>
+                                        <div className="chart-tooltip">{progress}%</div>
+                                    </div>
+
+                                    <div className="medicine-camera-frame mt-5 compact-camera-frame">
+                                        <canvas ref={canvasRef} className="preview" />
+                                    </div>
+
+                                    <div className="medicine-progress-card compact">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-sm text-white">OCR progress</span>
+                                            <span className="text-sm text-white">{progress}%</span>
+                                        </div>
+                                        <div className="progress-bar mt-3">
+                                            <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {phase === 'result' && matchResult && (
+                                <div className="compact-stage-section">
+                                    <div className="compact-stage-top">
+                                        <div>
+                                            <p className="metric-label">Result</p>
+                                            <h3 className="text-xl font-semibold text-white mt-3">{matchResult.matched ? 'Medication verified successfully' : 'Medicine mismatch detected'}</h3>
+                                            <p className="section-subtitle mt-2">{matchResult.reason}</p>
+                                        </div>
+                                        <span className={`status-badge ${matchResult.matched ? 'status-normal' : 'status-critical'}`}>
+                                            <span className="status-dot" />
+                                            {matchResult.matched ? 'Match' : 'Mismatch'}
+                                        </span>
+                                    </div>
+
+                                    <div className={`medicine-result-card ${matchResult.matched ? 'success' : 'danger'}`}>
+                                        <div>
+                                            <p className="text-sm font-semibold text-white">{matchResult.matched ? matchResult.medicine : 'Prescription did not match'}</p>
+                                            <p className="text-xs muted-text mt-1">Confidence {matchResult.confidence}% {matchResult.matched && matchResult.dosage ? `· ${matchResult.dosage}` : ''}</p>
+                                        </div>
+                                        {matchResult.matched && (
+                                            <p className="text-sm text-white mt-4">Take at: {matchResult.times?.join(', ') || 'No schedule saved'}</p>
+                                        )}
+                                        <div className="medicine-ocr-block">{ocrResult || 'No OCR result available.'}</div>
+                                    </div>
+
+                                    <div className="medicine-actions compact-actions">
+                                        {matchResult.matched ? (
+                                            <button onClick={handleConfirm} className="header-pill-button" aria-label="Confirm medicine and mark task done">Confirm and Mark Done</button>
+                                        ) : (
+                                            <div className="flex flex-wrap gap-3">
+                                                <button onClick={handleWrongMedicine} className="emergency-inline-button" aria-label="Alert guardian about wrong medicine">Alert Guardian</button>
+                                                <button onClick={startCamera} className="range-pill" aria-label="Scan medicine again">Try Again</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </section>
                     </div>
                 </div>

@@ -12,8 +12,6 @@ const SOSButton = () => {
 
     const triggerSOS = async () => {
         if (loading) return;
-        const confirmed = window.confirm('Send SOS alert to your guardian and emergency contacts?');
-        if (!confirmed) return;
 
         setLoading(true);
         try {

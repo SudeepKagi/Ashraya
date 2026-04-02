@@ -1,5 +1,6 @@
 ﻿// FILE: client/src/components/elder/TaskCard.jsx
 import { useState, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../../services/api';
 import useVoice from '../../hooks/useVoice';
 
@@ -29,6 +30,14 @@ const ClockIcon = () => (
         <path d="M12 7v5l3 3" />
     </svg>
 );
+
+const renderToViewport = (node) => {
+    if (typeof document === 'undefined') {
+        return node;
+    }
+
+    return createPortal(node, document.body);
+};
 
 const TaskCard = ({ task, onUpdate, large = false, prescribedMedicines = [] }) => {
     const [loading, setLoading] = useState(false);
@@ -206,17 +215,19 @@ const TaskCard = ({ task, onUpdate, large = false, prescribedMedicines = [] }) =
                 ) : null}
             </article>
 
-            <Suspense fallback={null}>
-                {activeModule === 'exercise' ? (
-                    <ExerciseModule task={task} onComplete={handleModuleComplete} onClose={handleModuleClose} />
-                ) : null}
-                {activeModule === 'medicine' ? (
-                    <MedicineVerifier task={task} prescribedMedicines={prescribedMedicines} onComplete={handleModuleComplete} onClose={handleModuleClose} />
-                ) : null}
-                {activeModule === 'checkin' ? (
-                    <EmotionCheckin task={task} onComplete={handleModuleComplete} onClose={handleModuleClose} />
-                ) : null}
-            </Suspense>
+            {activeModule ? renderToViewport(
+                <Suspense fallback={null}>
+                    {activeModule === 'exercise' ? (
+                        <ExerciseModule task={task} onComplete={handleModuleComplete} onClose={handleModuleClose} />
+                    ) : null}
+                    {activeModule === 'medicine' ? (
+                        <MedicineVerifier task={task} prescribedMedicines={prescribedMedicines} onComplete={handleModuleComplete} onClose={handleModuleClose} />
+                    ) : null}
+                    {activeModule === 'checkin' ? (
+                        <EmotionCheckin task={task} onComplete={handleModuleComplete} onClose={handleModuleClose} />
+                    ) : null}
+                </Suspense>,
+            ) : null}
         </>
     );
 };
