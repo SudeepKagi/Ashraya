@@ -5,14 +5,34 @@ import useVoice from '../../hooks/useVoice';
 import { getSocket } from '../../services/socketService';
 import api from '../../services/api';
 
-const FALL_SPIKE = 2.5;   // g — impact threshold
-const STILL_THRESH = 0.5; // g — stillness threshold
-const WINDOW_MS = 1500;   // ms — fall detection window
-const CONFIRM_SECS = 60;  // seconds before auto-alert
+const FALL_SPIKE = 2.5;
+const STILL_THRESH = 0.5;
+const WINDOW_MS = 1500;
+const CONFIRM_SECS = 60;
+
+const WatchIcon = () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <rect x="7" y="5" width="10" height="14" rx="3" />
+        <path d="M9 2h6" />
+        <path d="M9 22h6" />
+        <path d="M10 9h4" />
+        <path d="M12 9v4l2 1" />
+    </svg>
+);
 
 const FallDetector = ({ hearingImpaired = false, onVitalsUpdate }) => {
-    const { connected, status, error, vitals, connect, disconnect,
-        simulateFall, registerSampleCallback, isSimulating } = useBluetooth();
+    const {
+        connected,
+        status,
+        error,
+        vitals,
+        connect,
+        disconnect,
+        simulateFall,
+        startSimulation,
+        registerSampleCallback,
+        isSimulating
+    } = useBluetooth();
     const { speak } = useVoice();
 
     const [fallDetected, setFallDetected] = useState(false);
@@ -22,102 +42,107 @@ const FallDetector = ({ hearingImpaired = false, onVitalsUpdate }) => {
     const countdownRef = useRef(null);
     const spikeTimeRef = useRef(null);
     const spikeDetectedRef = useRef(false);
-
-    // Stream vitals to parent + API every 5s
     const streamIntervalRef = useRef(null);
     const pendingVitalsRef = useRef({});
 
-    // Notify parent component about vitals (for dashboard display)
     useEffect(() => {
         if (onVitalsUpdate && vitals.hr !== null) {
             onVitalsUpdate(vitals);
         }
     }, [vitals, onVitalsUpdate]);
 
-    // Stream watch data to backend every 5 seconds
+    useEffect(() => {
+        pendingVitalsRef.current = {
+            ...pendingVitalsRef.current,
+            hr: vitals.hr ?? pendingVitalsRef.current.hr,
+            spo2: vitals.spo2 ?? pendingVitalsRef.current.spo2,
+            bp: vitals.bp ?? pendingVitalsRef.current.bp,
+            steps: vitals.steps ?? pendingVitalsRef.current.steps,
+            battery: vitals.battery ?? pendingVitalsRef.current.battery,
+            source: vitals.source ?? pendingVitalsRef.current.source
+        };
+    }, [vitals]);
+
     useEffect(() => {
         if (!connected) {
             clearInterval(streamIntervalRef.current);
             return;
         }
+
         streamIntervalRef.current = setInterval(async () => {
-            const v = pendingVitalsRef.current;
-            if (!v.hr && !v.spo2 && !v.accel) return; // nothing to send
+            const buffered = pendingVitalsRef.current;
+            if (
+                buffered.hr === undefined
+                && buffered.spo2 === undefined
+                && buffered.bp === undefined
+                && buffered.accel === undefined
+                && buffered.steps === undefined
+                && buffered.battery === undefined
+            ) return;
+
             try {
                 await api.post('/health/watch-stream', {
-                    hr: v.hr,
-                    spo2: v.spo2,
-                    accel: v.accel,
-                    steps: v.steps
+                    hr: buffered.hr,
+                    spo2: buffered.spo2,
+                    bp: buffered.bp,
+                    accel: buffered.accel,
+                    steps: buffered.steps,
+                    battery: buffered.battery,
+                    source: buffered.source
                 });
-            } catch (e) {
-                console.warn('Watch stream error:', e.message);
+                pendingVitalsRef.current = {
+                    hr: undefined,
+                    spo2: undefined,
+                    bp: undefined,
+                    accel: undefined,
+                    steps: undefined,
+                    battery: undefined,
+                    source: buffered.source
+                };
+            } catch (err) {
+                console.warn('Watch stream error:', err.message);
             }
         }, 5000);
+
         return () => clearInterval(streamIntervalRef.current);
     }, [connected]);
 
-    // Listen for guardian-side fall cancellation
+    const cancelAlert = useCallback(() => {
+        clearInterval(countdownRef.current);
+        setFallDetected(false);
+        setAlertSent(false);
+        setCountdown(CONFIRM_SECS);
+        getSocket()?.emit('elder_ok', { elderId: 'self' });
+        if (!hearingImpaired) {
+            speak('Glad you are okay. Alert cancelled.');
+        }
+    }, [hearingImpaired, speak]);
+
     useEffect(() => {
         const socket = getSocket();
-        if (!socket) return;
+        if (!socket) return undefined;
+
         const handler = () => cancelAlert();
         socket.on('fall_cancelled', handler);
         return () => socket.off('fall_cancelled', handler);
-    }, []);
+    }, [cancelAlert]);
 
-    // Wire accelerometer samples into fall detector + vitals
-    useEffect(() => {
-        registerSampleCallback((sample) => {
-            // Route to pending vitals buffer for streaming
-            if (sample.type === 'hr') {
-                pendingVitalsRef.current.hr = sample.value;
-            } else if (sample.type === 'spo2') {
-                pendingVitalsRef.current.spo2 = sample.value;
-            } else if (sample.type === 'accel') {
-                pendingVitalsRef.current.accel = { x: sample.x, y: sample.y, z: sample.z };
-                processFallSample(sample);
+    const sendFallAlert = useCallback(async () => {
+        try {
+            await api.post('/health/fall-alert', { type: 'fall', confirmedByElder: false });
+            setAlertSent(true);
+            if (!hearingImpaired) {
+                speak('Alert sent to your guardian. Help is on the way.');
             }
-        });
-    }, [registerSampleCallback]);
-
-    const processFallSample = (sample) => {
-        const { x = 0, y = 0, z = 0 } = sample;
-        const R = Math.sqrt(x * x + y * y + z * z);
-
-        if (!spikeDetectedRef.current && R > FALL_SPIKE) {
-            spikeDetectedRef.current = true;
-            spikeTimeRef.current = Date.now();
-            return;
+        } catch (err) {
+            console.error('Fall alert failed:', err.message);
         }
-
-        if (spikeDetectedRef.current) {
-            const elapsed = Date.now() - spikeTimeRef.current;
-            if (elapsed > WINDOW_MS) {
-                spikeDetectedRef.current = false;
-                spikeTimeRef.current = null;
-                return;
-            }
-            if (R < STILL_THRESH) {
-                spikeDetectedRef.current = false;
-                spikeTimeRef.current = null;
-                triggerFallAlert();
-            }
-        }
-    };
-
-    const triggerFallAlert = useCallback(() => {
-        setFallDetected(true);
-        setCountdown(CONFIRM_SECS);
-        setAlertSent(false);
-        if (!hearingImpaired) speak("Did you fall? Say I'm okay or tap the button if you're fine.");
-        startCountdown();
     }, [hearingImpaired, speak]);
 
     const startCountdown = useCallback(() => {
         clearInterval(countdownRef.current);
         countdownRef.current = setInterval(() => {
-            setCountdown(prev => {
+            setCountdown((prev) => {
                 if (prev <= 1) {
                     clearInterval(countdownRef.current);
                     sendFallAlert();
@@ -126,144 +151,201 @@ const FallDetector = ({ hearingImpaired = false, onVitalsUpdate }) => {
                 return prev - 1;
             });
         }, 1000);
-    }, []);
+    }, [sendFallAlert]);
 
-    const cancelAlert = useCallback(() => {
-        clearInterval(countdownRef.current);
-        setFallDetected(false);
-        setAlertSent(false);
+    const triggerFallAlert = useCallback(() => {
+        setFallDetected(true);
         setCountdown(CONFIRM_SECS);
-        const socket = getSocket();
-        socket?.emit('elder_ok', { elderId: 'self' });
-        if (!hearingImpaired) speak("Glad you're okay! Alert cancelled.");
-    }, [hearingImpaired, speak]);
-
-    const sendFallAlert = useCallback(async () => {
-        try {
-            await api.post('/health/fall-alert', { type: 'fall', confirmedByElder: false });
-            setAlertSent(true);
-            if (!hearingImpaired) speak('Alert sent to your guardian. Help is on the way.');
-        } catch (err) {
-            console.error('Fall alert failed:', err.message);
+        setAlertSent(false);
+        if (!hearingImpaired) {
+            speak("Did you fall? Say I'm okay or tap the button if you are fine.");
         }
-    }, [hearingImpaired, speak]);
+        startCountdown();
+    }, [hearingImpaired, speak, startCountdown]);
+
+    const processFallSample = useCallback((sample) => {
+        const { x = 0, y = 0, z = 0 } = sample;
+        const resultant = Math.sqrt(x * x + y * y + z * z);
+
+        if (!spikeDetectedRef.current && resultant > FALL_SPIKE) {
+            spikeDetectedRef.current = true;
+            spikeTimeRef.current = Date.now();
+            return;
+        }
+
+        if (!spikeDetectedRef.current) return;
+
+        const elapsed = Date.now() - spikeTimeRef.current;
+        if (elapsed > WINDOW_MS) {
+            spikeDetectedRef.current = false;
+            spikeTimeRef.current = null;
+            return;
+        }
+
+        if (resultant < STILL_THRESH) {
+            spikeDetectedRef.current = false;
+            spikeTimeRef.current = null;
+            triggerFallAlert();
+        }
+    }, [triggerFallAlert]);
+
+    useEffect(() => {
+        registerSampleCallback((sample) => {
+            if (sample.type === 'hr') {
+                pendingVitalsRef.current.hr = sample.value;
+            } else if (sample.type === 'spo2') {
+                pendingVitalsRef.current.spo2 = sample.value;
+            } else if (sample.type === 'bp') {
+                pendingVitalsRef.current.bp = sample.value;
+            } else if (sample.type === 'steps') {
+                pendingVitalsRef.current.steps = sample.value;
+            } else if (sample.type === 'accel') {
+                pendingVitalsRef.current.accel = { x: sample.x, y: sample.y, z: sample.z };
+                processFallSample(sample);
+            }
+        });
+    }, [processFallSample, registerSampleCallback]);
 
     useEffect(() => () => {
         clearInterval(countdownRef.current);
         clearInterval(streamIntervalRef.current);
     }, []);
 
-    // ── Fall confirmation overlay ──────────────────────────────────────────
     if (fallDetected) {
         return (
-            <div className="fixed inset-0 z-50 bg-red-600 flex flex-col items-center justify-center p-6 text-white">
-                <div className="text-6xl mb-4 animate-bounce">🚨</div>
-                <h1 className={`font-bold text-center mb-2 ${hearingImpaired ? 'text-5xl' : 'text-3xl'}`}>
-                    Did you fall?
-                </h1>
-                {!alertSent ? (
-                    <>
-                        <p className={`text-center text-red-100 mb-8 ${hearingImpaired ? 'text-2xl' : 'text-base'}`}>
-                            Guardian alerted in{' '}
-                            <span className="font-bold text-white text-4xl">{countdown}s</span>
-                        </p>
-                        <button
-                            onClick={cancelAlert}
-                            aria-label="I am okay, cancel alert"
-                            className={`bg-white text-red-600 font-bold rounded-2xl shadow-xl active:scale-95 transition-transform
-                                ${hearingImpaired ? 'w-64 h-32 text-4xl' : 'w-48 h-20 text-2xl'}`}
-                        >
-                            ✅ I'm Okay
-                        </button>
-                        {hearingImpaired && (
-                            <button
-                                onClick={sendFallAlert}
-                                aria-label="Send help alert now"
-                                className="mt-6 w-64 h-32 bg-red-800 text-white font-bold rounded-2xl text-4xl shadow-xl active:scale-95 transition-transform"
-                            >
-                                🆘 Help Me
-                            </button>
-                        )}
-                    </>
-                ) : (
-                    <div className="text-center mt-4 space-y-2">
-                        <p className="text-3xl font-bold">✅ Alert Sent</p>
-                        <p className="text-red-100 text-lg">Your guardian has been notified. Stay calm.</p>
-                    </div>
-                )}
+            <div className="fall-overlay">
+                <div className="fall-overlay-card">
+                    <div className="fall-overlay-icon">!</div>
+                    <p className="eyebrow">Emergency Check</p>
+                    <h2 className="section-title mt-3 text-center text-[1.9rem]">Did you fall?</h2>
+                    {!alertSent ? (
+                        <>
+                            <p className="section-subtitle mt-3 text-center">
+                                Guardian will be alerted in <span className="text-white font-semibold">{countdown}s</span>.
+                            </p>
+                            <div className="fall-overlay-actions">
+                                <button
+                                    onClick={cancelAlert}
+                                    aria-label="I am okay, cancel alert"
+                                    className="header-pill-button min-w-[180px]"
+                                >
+                                    I&apos;m Okay
+                                </button>
+                                <button
+                                    onClick={sendFallAlert}
+                                    aria-label="Send emergency alert now"
+                                    className="emergency-inline-button"
+                                >
+                                    Send Help Now
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="glass-panel p-5 mt-5 text-center">
+                            <p className="text-base font-semibold text-white">Alert sent to guardian</p>
+                            <p className="text-sm muted-text mt-2">Please stay calm. Help is on the way.</p>
+                        </div>
+                    )}
+                </div>
             </div>
         );
     }
 
-    // ── Idle: connect panel + live vitals ────────────────────────────────
+    const connectionTone = status === 'connected'
+        ? 'status-normal'
+        : status === 'simulating' || status === 'connecting'
+            ? 'status-warning'
+            : 'status-critical';
+
+    const connectionLabel = status === 'connected'
+        ? 'Live'
+        : status === 'simulating'
+            ? 'Demo'
+            : status === 'connecting'
+                ? 'Pairing'
+                : 'Offline';
+
     return (
-        <div className="bg-white border border-gray-100 rounded-2xl p-4 space-y-3">
-            {/* Connection row */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <span className="text-xl">⌚</span>
+        <div className="watch-card">
+            <div className="watch-card-header">
+                <div className="flex items-center gap-3">
+                    <div className="metric-icon">
+                        <WatchIcon />
+                    </div>
                     <div>
-                        <p className="text-sm font-semibold text-gray-800">Smartwatch</p>
-                        <p className={`text-xs font-medium mt-0.5 ${status === 'connected' ? 'text-emerald-500' :
-                                status === 'simulating' ? 'text-blue-500' :
-                                    status === 'connecting' ? 'text-yellow-500' :
-                                        status === 'error' ? 'text-red-500' : 'text-gray-400'
-                            }`}>
-                            {status === 'connected' ? '● Live — real watch' :
-                                status === 'simulating' ? '● Simulation mode' :
-                                    status === 'connecting' ? '● Connecting...' :
-                                        status === 'error' ? '● Connection failed' : '● Not connected'}
-                        </p>
+                        <p className="text-sm font-semibold text-white">Smartwatch Safety Link</p>
+                        <p className="text-xs muted-text mt-1">Live vitals, fall detection, and guardian escalation.</p>
                     </div>
                 </div>
+                <span className={`status-badge ${connectionTone}`}>
+                    <span className="status-dot" />
+                    {connectionLabel}
+                </span>
+            </div>
+
+            <div className="watch-stats-grid">
+                <div className="watch-stat">
+                    <span className="metric-label">Heart Rate</span>
+                    <span className="watch-stat-value">{vitals.hr ?? '--'}</span>
+                    <span className="watch-stat-unit">bpm</span>
+                </div>
+                <div className="watch-stat">
+                    <span className="metric-label">SpO2</span>
+                    <span className="watch-stat-value">{vitals.spo2 ? `${vitals.spo2}` : '--'}</span>
+                    <span className="watch-stat-unit">%</span>
+                </div>
+                <div className="watch-stat">
+                    <span className="metric-label">Battery</span>
+                    <span className="watch-stat-value">{vitals.battery ? `${vitals.battery}` : '--'}</span>
+                    <span className="watch-stat-unit">%</span>
+                </div>
+                <div className="watch-stat">
+                    <span className="metric-label">Blood Pressure</span>
+                    <span className="watch-stat-value">
+                        {vitals.bp?.systolic && vitals.bp?.diastolic ? `${vitals.bp.systolic}/${vitals.bp.diastolic}` : '--/--'}
+                    </span>
+                    <span className="watch-stat-unit">mmHg</span>
+                </div>
+            </div>
+
+            {error ? <p className="critical-text text-xs leading-6">{error}</p> : null}
+            <p className="text-xs muted-text">
+                {isSimulating
+                    ? 'Demo mode is generating watch vitals, battery, and fall movement for the live dashboards.'
+                    : status === 'connected'
+                        ? 'Connected to the current wearable. Heart rate and fall motion are live, while BP depends on device support.'
+                        : 'Pair a compatible watch, or switch to demo mode for the hackathon flow.'}
+            </p>
+
+            <div className="watch-actions">
                 <button
                     onClick={connected ? disconnect : connect}
                     aria-label={connected ? 'Disconnect smartwatch' : 'Connect smartwatch'}
-                    className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors
-                        ${connected
-                            ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                            : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
+                    className={connected ? 'range-pill' : 'header-pill-button'}
                 >
-                    {connected ? 'Disconnect' : 'Connect Watch'}
+                    {connected ? 'Disconnect Watch' : 'Connect Watch'}
                 </button>
+
+                {!connected ? (
+                    <button
+                        onClick={startSimulation}
+                        aria-label="Start demo watch mode"
+                        className="range-pill"
+                    >
+                        Start Demo Mode
+                    </button>
+                ) : null}
+
+                {isSimulating ? (
+                    <button
+                        onClick={simulateFall}
+                        aria-label="Simulate a fall for demo"
+                        className="emergency-inline-button"
+                    >
+                        Demo Fall Trigger
+                    </button>
+                ) : null}
             </div>
-
-            {/* Live vitals row */}
-            {connected && (
-                <div className="grid grid-cols-3 gap-2">
-                    <div className="bg-red-50 rounded-xl p-2 text-center">
-                        <p className="text-lg font-bold text-red-600">
-                            {vitals.hr ? `${vitals.hr}` : '––'}
-                        </p>
-                        <p className="text-xs text-red-400">HR bpm</p>
-                    </div>
-                    <div className="bg-blue-50 rounded-xl p-2 text-center">
-                        <p className="text-lg font-bold text-blue-600">
-                            {vitals.spo2 ? `${vitals.spo2}%` : '––'}
-                        </p>
-                        <p className="text-xs text-blue-400">SpO2</p>
-                    </div>
-                    <div className="bg-green-50 rounded-xl p-2 text-center">
-                        <p className="text-lg font-bold text-green-600">
-                            {vitals.battery ? `${vitals.battery}%` : '––'}
-                        </p>
-                        <p className="text-xs text-green-400">Battery</p>
-                    </div>
-                </div>
-            )}
-
-            {error && <p className="text-xs text-red-400 leading-relaxed">{error}</p>}
-
-            {/* Demo fall trigger button (simulation only) */}
-            {isSimulating && (
-                <button
-                    onClick={simulateFall}
-                    aria-label="Simulate a fall for demo"
-                    className="w-full text-xs bg-orange-50 text-orange-600 font-semibold py-2 rounded-lg border border-orange-200 hover:bg-orange-100"
-                >
-                    🎭 Demo: Simulate Fall
-                </button>
-            )}
         </div>
     );
 };

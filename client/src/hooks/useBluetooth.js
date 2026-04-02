@@ -17,7 +17,14 @@ const useBluetooth = () => {
     const [connected, setConnected] = useState(false);
     const [status, setStatus] = useState('disconnected'); // disconnected|connecting|connected|error|simulating
     const [error, setError] = useState(null);
-    const [vitals, setVitals] = useState({ hr: null, spo2: null, battery: null });
+    const [vitals, setVitals] = useState({
+        hr: null,
+        spo2: null,
+        bp: null,
+        battery: null,
+        steps: null,
+        source: 'idle'
+    });
 
     const deviceRef = useRef(null);
     const sampleCallbackRef = useRef(null);
@@ -65,8 +72,8 @@ const useBluetooth = () => {
                 hrChar.addEventListener('characteristicvaluechanged', (e) => {
                     const flags = e.target.value.getUint8(0);
                     // Bit 0: 0 = HR is uint8, 1 = HR is uint16
-                    const hr = (flags & 0x01) ? e.target.value.getUint16(1, true) : e.target.value.getUint8(1);
-                    setVitals(v => ({ ...v, hr }));
+                const hr = (flags & 0x01) ? e.target.value.getUint16(1, true) : e.target.value.getUint8(1);
+                    setVitals(v => ({ ...v, hr, source: 'watch' }));
 
                     // Feed into fall detector as a heartbeat "alive" signal
                     if (sampleCallbackRef.current) {
@@ -82,7 +89,7 @@ const useBluetooth = () => {
                 const batService = await server.getPrimaryService(BATTERY_SERVICE);
                 const batChar = await batService.getCharacteristic(BATTERY_LEVEL);
                 const batVal = await batChar.readValue();
-                setVitals(v => ({ ...v, battery: batVal.getUint8(0) }));
+                setVitals(v => ({ ...v, battery: batVal.getUint8(0), source: 'watch' }));
             } catch {
                 console.warn('Battery service not available');
             }
@@ -109,6 +116,10 @@ const useBluetooth = () => {
 
             setConnected(true);
             setStatus('connected');
+            setVitals((current) => ({
+                ...current,
+                source: 'watch'
+            }));
 
         } catch (err) {
             if (err.name === 'NotFoundError') {
@@ -129,16 +140,29 @@ const useBluetooth = () => {
 
         let simHR = 72;
         let simSpO2 = 98;
-        let fallSimStep = 0; // used to occasionally simulate a fall spike
+        let simSystolic = 122;
+        let simDiastolic = 81;
+        let simSteps = 1240;
 
         simulationRef.current = setInterval(() => {
-            // Random walk HR 65-90
             simHR = Math.min(90, Math.max(65, simHR + (Math.random() - 0.5) * 4));
             simSpO2 = Math.min(100, Math.max(95, simSpO2 + (Math.random() - 0.5) * 0.5));
+            simSystolic = Math.min(138, Math.max(112, simSystolic + (Math.random() - 0.5) * 3));
+            simDiastolic = Math.min(92, Math.max(72, simDiastolic + (Math.random() - 0.5) * 2));
+            simSteps += Math.round(Math.random() * 12);
 
-            setVitals({ hr: Math.round(simHR), spo2: Math.round(simSpO2 * 10) / 10, battery: 85 });
+            setVitals({
+                hr: Math.round(simHR),
+                spo2: Math.round(simSpO2 * 10) / 10,
+                bp: {
+                    systolic: Math.round(simSystolic),
+                    diastolic: Math.round(simDiastolic)
+                },
+                battery: 85,
+                steps: simSteps,
+                source: 'simulation'
+            });
 
-            // Generate synthetic accelerometer (normal walking ~1g)
             const x = (Math.random() - 0.5) * 0.4;
             const y = (Math.random() - 0.5) * 0.4;
             const z = 1.0 + (Math.random() - 0.5) * 0.3;
@@ -146,6 +170,15 @@ const useBluetooth = () => {
             if (sampleCallbackRef.current) {
                 sampleCallbackRef.current({ type: 'accel', x, y, z });
                 sampleCallbackRef.current({ type: 'hr', value: Math.round(simHR) });
+                sampleCallbackRef.current({ type: 'spo2', value: Math.round(simSpO2 * 10) / 10 });
+                sampleCallbackRef.current({
+                    type: 'bp',
+                    value: {
+                        systolic: Math.round(simSystolic),
+                        diastolic: Math.round(simDiastolic)
+                    }
+                });
+                sampleCallbackRef.current({ type: 'steps', value: simSteps });
             }
         }, 1000);
     }, []);
@@ -160,7 +193,7 @@ const useBluetooth = () => {
         }
         setConnected(false);
         setStatus('disconnected');
-        setVitals({ hr: null, spo2: null, battery: null });
+        setVitals({ hr: null, spo2: null, bp: null, battery: null, steps: null, source: 'idle' });
     }, []);
 
     // Trigger a simulated fall (for demo)
@@ -178,6 +211,7 @@ const useBluetooth = () => {
         connected, status, error, vitals,
         connect, disconnect, simulateFall,
         registerSampleCallback,
+        startSimulation,
         isSimulating: status === 'simulating'
     };
 };

@@ -15,6 +15,7 @@ const scheduleRoutes = require('./routes/schedule');
 const healthRoutes = require('./routes/health');
 const emotionRoutes = require('./routes/emotion');
 const reportRoutes = require('./routes/report');
+const voiceRoutes = require('./routes/voice');
 const { initSocket } = require('./socket/socketHandler');
 const errorHandler = require('./middleware/errorHandler');
 
@@ -31,7 +32,7 @@ const io = new Server(server, {
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
 app.use(morgan('dev'));
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 
 // Attach io to every request so controllers can emit
 app.use((req, res, next) => {
@@ -47,6 +48,7 @@ app.use('/api/schedule', scheduleRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/emotion', emotionRoutes);
 app.use('/api/report', reportRoutes);
+app.use('/api/voice', voiceRoutes);
 
 // Health check
 app.get('/api/ping', (req, res) => res.json({ status: 'Ashraya server running ✅' }));

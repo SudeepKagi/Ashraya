@@ -2,11 +2,12 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
-const { logHealth, logFallAlert, streamWatchData, getHealthLogs } = require('../controllers/healthController');
+const { logHealth, logFallAlert, sendGuardianAlert, streamWatchData, getHealthLogs } = require('../controllers/healthController');
 
 router.post('/log', protect, logHealth);
 router.post('/fall-alert', protect, logFallAlert);
-router.post('/watch-stream', protect, streamWatchData);   // ← THIS WAS MISSING
+router.post('/guardian-alert', protect, sendGuardianAlert);
+router.post('/watch-stream', protect, streamWatchData);
 router.get('/logs/:elderId', protect, getHealthLogs);
 
 module.exports = router;

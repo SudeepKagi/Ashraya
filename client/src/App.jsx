@@ -1,6 +1,8 @@
 // FILE: client/src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { AccessibilityProvider } from './context/AccessibilityContext';
+import AccessibilityWrapper from './components/common/AccessibilityWrapper';
 import Login from './pages/auth/Login';
 import ElderRegister from './pages/auth/ElderRegister';
 import GuardianRegister from './pages/auth/GuardianRegister';
@@ -76,7 +78,11 @@ const AppRoutes = () => {
 const App = () => (
   <BrowserRouter>
     <AuthProvider>
-      <AppRoutes />
+      <AccessibilityProvider>
+        <AccessibilityWrapper>
+          <AppRoutes />
+        </AccessibilityWrapper>
+      </AccessibilityProvider>
     </AuthProvider>
   </BrowserRouter>
 );

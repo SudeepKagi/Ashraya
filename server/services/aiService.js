@@ -16,6 +16,19 @@ const chat = (prompt, maxTokens = 4000) => groq.chat.completions.create({
     max_tokens: maxTokens
 });
 
+const chatText = (prompt, maxTokens = 1000) => groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+        {
+            role: 'system',
+            content: 'You are a concise caregiving assistant. Return plain text only.'
+        },
+        { role: 'user', content: prompt }
+    ],
+    temperature: 0.4,
+    max_tokens: maxTokens
+});
+
 const extractJSON = (raw) => {
     let cleaned = raw
         .replace(/^```json\s*/i, '')
@@ -178,8 +191,28 @@ Diseases: ${elder.profile?.diseases?.join(', ') || 'None'}
 
 Write 3-4 sentences. Be warm and clear. Mention key concerns if any. No markdown.`;
 
-    const result = await chat(prompt, 1000);
+    const result = await chatText(prompt, 1000);
     return result.choices[0].message.content.trim();
 };
 
-module.exports = { generateDailySchedule, analyseEmotion, generateDailyReportSummary };
+const generateVoiceCompanionReply = async ({ elderName, query, nextTask, moodSignals = [] }) => {
+    const prompt = `You are Ashraya, a warm voice companion for an elderly user.
+
+User name: ${elderName || 'friend'}
+User said: "${query}"
+Next scheduled task: ${nextTask ? `${nextTask.title} at ${nextTask.scheduledTime}` : 'No pending task'}
+Mood hints from recent speech: ${moodSignals.length ? moodSignals.join(', ') : 'none'}
+
+Reply as a calm, spoken-style assistant:
+- Keep it to 2 or 3 short sentences.
+- Be gentle, reassuring, and practical.
+- If the user sounds sad, lonely, anxious, or tired, respond with extra warmth.
+- If they ask about their routine, mention the next task when helpful.
+- Do not use markdown, bullet points, or labels.
+- Return plain text only.`;
+
+    const result = await chatText(prompt, 300);
+    return result.choices[0].message.content.trim();
+};
+
+module.exports = { generateDailySchedule, analyseEmotion, generateDailyReportSummary, generateVoiceCompanionReply };

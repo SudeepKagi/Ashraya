@@ -1,4 +1,4 @@
-// FILE: client/src/components/elder/TaskCard.jsx
+﻿// FILE: client/src/components/elder/TaskCard.jsx
 import { useState, lazy, Suspense } from 'react';
 import api from '../../services/api';
 import useVoice from '../../hooks/useVoice';
@@ -8,20 +8,27 @@ const MedicineVerifier = lazy(() => import('./MedicineVerifier'));
 const EmotionCheckin = lazy(() => import('./EmotionCheckin'));
 
 const TYPE_META = {
-    water: { icon: '💧', color: 'bg-blue-50 border-blue-200', badge: 'bg-blue-100 text-blue-700' },
-    medicine: { icon: '💊', color: 'bg-purple-50 border-purple-200', badge: 'bg-purple-100 text-purple-700' },
-    exercise: { icon: '🏃', color: 'bg-green-50 border-green-200', badge: 'bg-green-100 text-green-700' },
-    meal: { icon: '🍽️', color: 'bg-orange-50 border-orange-200', badge: 'bg-orange-100 text-orange-700' },
-    checkin: { icon: '💬', color: 'bg-pink-50 border-pink-200', badge: 'bg-pink-100 text-pink-700' },
-    bp_report: { icon: '❤️', color: 'bg-red-50 border-red-200', badge: 'bg-red-100 text-red-700' }
+    water: { label: 'Hydration', accent: 'status-normal', action: 'Mark Done' },
+    medicine: { label: 'Medication', accent: 'status-warning', action: 'Verify Medicine' },
+    exercise: { label: 'Exercise', accent: 'status-normal', action: 'Start Exercise' },
+    meal: { label: 'Meal', accent: 'status-warning', action: 'Mark Done' },
+    checkin: { label: 'Check-in', accent: 'status-normal', action: 'Check In' },
+    bp_report: { label: 'BP Report', accent: 'status-critical', action: 'Mark Done' }
 };
 
 const STATUS_STYLE = {
-    pending: 'bg-gray-100 text-gray-600',
-    done: 'bg-emerald-100 text-emerald-700',
-    skipped: 'bg-yellow-100 text-yellow-700',
-    refused: 'bg-red-100 text-red-700'
+    pending: 'status-warning',
+    done: 'status-normal',
+    skipped: 'status-warning',
+    refused: 'status-critical'
 };
+
+const ClockIcon = () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 3" />
+    </svg>
+);
 
 const TaskCard = ({ task, onUpdate, large = false, prescribedMedicines = [] }) => {
     const [loading, setLoading] = useState(false);
@@ -78,21 +85,18 @@ const TaskCard = ({ task, onUpdate, large = false, prescribedMedicines = [] }) =
         }
     };
 
-    // Called when a module completes the task — refreshes stats from server
     const handleModuleComplete = async () => {
         try {
             const { data } = await api.get('/schedule/today');
-            const updatedTask = data.schedule.tasks.find(t => t.taskId === task.taskId);
+            const updatedTask = data.schedule.tasks.find((t) => t.taskId === task.taskId);
             if (updatedTask) onUpdate(updatedTask, data.stats);
         } catch {
-            // fallback — just mark done locally
             onUpdate({ ...task, status: 'done' }, null);
         } finally {
             setActiveModule(null);
         }
     };
 
-    // Called when modal is closed without completing
     const handleModuleClose = () => {
         setActiveModule(null);
     };
@@ -110,48 +114,48 @@ const TaskCard = ({ task, onUpdate, large = false, prescribedMedicines = [] }) =
 
     return (
         <>
-            <div className={`rounded-2xl border p-4 transition-all ${meta.color} ${isDone ? 'opacity-60' : ''} ${large ? 'p-5' : ''}`}>
-                <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                        <span className={`${large ? 'text-3xl' : 'text-2xl'}`}>{meta.icon}</span>
-                        <div>
-                            <p className={`font-semibold text-gray-800 ${large ? 'text-lg' : 'text-sm'}`}>{task.title}</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{task.scheduledTime} · {task.durationMinutes} min</p>
-                        </div>
+            <article className={`vital-card ${large ? 'p-7' : ''} ${isDone ? 'opacity-75' : ''}`}>
+                <div className="metric-header">
+                    <div className="metric-icon"><ClockIcon /></div>
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                        <span className={`status-badge ${meta.accent}`}>{meta.label}</span>
+                        <span className={`status-badge ${STATUS_STYLE[task.status]}`}>{task.status}</span>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_STYLE[task.status]}`}>
-                        {task.status}
-                    </span>
                 </div>
 
-                {task.instructions && (
-                    <p className="text-gray-600 mt-2 text-xs leading-relaxed">{task.instructions}</p>
-                )}
+                <p className="metric-label">Scheduled Task</p>
+                <div className="metric-body">
+                    <span className="vital-value text-[var(--text-primary)] text-[clamp(1.7rem,3vw,2.4rem)]">{task.title}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 mt-4 text-sm muted-text">
+                    <span className="metric-inline-value text-[var(--text-primary)] text-base">{task.scheduledTime}</span>
+                    <span>{task.durationMinutes} min</span>
+                </div>
 
-                {task.status === 'refused' && task.refusalReason && (
-                    <p className="text-red-500 text-xs mt-1 italic">Reason: {task.refusalReason}</p>
-                )}
+                {task.instructions ? (
+                    <p className="text-sm muted-text leading-6 mt-4">{task.instructions}</p>
+                ) : null}
 
-                {(task.status === 'pending' || task.status === 'skipped') && (
-                    <div className="flex gap-2 mt-3 flex-wrap">
+                {task.status === 'refused' && task.refusalReason ? (
+                    <p className="text-sm critical-text mt-3">Reason: {task.refusalReason}</p>
+                ) : null}
+
+                {(task.status === 'pending' || task.status === 'skipped') ? (
+                    <div className="flex flex-wrap gap-2 mt-5">
                         <button
                             onClick={openModule}
                             disabled={loading}
                             aria-label={`Start ${task.title}`}
-                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-2 rounded-xl disabled:opacity-50 transition-colors"
+                            className="header-pill-button"
                         >
-                            {loading ? '...' :
-                                task.type === 'exercise' ? '▶ Start Exercise' :
-                                    task.type === 'medicine' ? '📷 Verify Medicine' :
-                                        task.type === 'checkin' ? '💬 Check-in' :
-                                            '✓ Mark Done'}
+                            {loading ? 'Working...' : meta.action}
                         </button>
 
                         <button
                             onClick={markSkipped}
                             disabled={loading}
                             aria-label="Skip task"
-                            className="px-3 bg-yellow-100 hover:bg-yellow-200 text-yellow-800 text-xs font-semibold py-2 rounded-xl transition-colors"
+                            className="range-pill"
                         >
                             Skip
                         </button>
@@ -159,73 +163,59 @@ const TaskCard = ({ task, onUpdate, large = false, prescribedMedicines = [] }) =
                         <button
                             onClick={() => setShowRefusal(!showRefusal)}
                             aria-label="Cannot do task"
-                            className="px-3 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold py-2 rounded-xl transition-colors"
+                            className="range-pill"
                         >
-                            Can't do
+                            Cannot Do
                         </button>
 
                         <button
                             onClick={readAloud}
                             aria-label="Read task aloud"
-                            className="px-3 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-semibold py-2 rounded-xl transition-colors"
+                            className="range-pill"
                         >
-                            🔊
+                            Read Aloud
                         </button>
                     </div>
-                )}
+                ) : null}
 
-                {showRefusal && (
-                    <div className="mt-3 space-y-2">
+                {showRefusal ? (
+                    <div className="mt-4 space-y-3">
                         <input
                             value={refusalReason}
-                            onChange={e => setRefusalReason(e.target.value)}
-                            placeholder="Why can't you do this? (e.g. feeling tired, knee pain)"
-                            className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-300"
+                            onChange={(e) => setRefusalReason(e.target.value)}
+                            placeholder="Share why this task is difficult right now"
+                            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
                             aria-label="Reason for not completing task"
                         />
                         <div className="flex gap-2">
                             <button
                                 onClick={submitRefusal}
                                 disabled={!refusalReason.trim() || loading}
-                                className="flex-1 bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded-xl disabled:opacity-50 transition-colors"
+                                className="header-pill-button"
                             >
                                 Submit
                             </button>
                             <button
                                 onClick={() => { setShowRefusal(false); setRefusalReason(''); }}
-                                className="px-4 bg-gray-100 text-gray-600 text-xs py-2 rounded-xl"
+                                className="range-pill"
                             >
                                 Cancel
                             </button>
                         </div>
                     </div>
-                )}
-            </div>
+                ) : null}
+            </article>
 
-            {/* Modals rendered OUTSIDE the card div so they cover full screen properly */}
             <Suspense fallback={null}>
-                {activeModule === 'exercise' && (
-                    <ExerciseModule
-                        task={task}
-                        onComplete={handleModuleComplete}
-                        onClose={handleModuleClose}
-                    />
-                )}
-                {activeModule === 'medicine' && (
-                    <MedicineVerifier
-                        task={task}
-                        prescribedMedicines={prescribedMedicines}
-                        onComplete={handleModuleComplete}
-                        onClose={handleModuleClose}
-                    />
-                )}
-                {activeModule === 'checkin' && (
-                    <EmotionCheckin
-                        task={task}
-                        onComplete={handleModuleComplete}
-                        onClose={handleModuleClose}
-                    />
-                )}
+                {activeModule === 'exercise' ? (
+                    <ExerciseModule task={task} onComplete={handleModuleComplete} onClose={handleModuleClose} />
+                ) : null}
+                {activeModule === 'medicine' ? (
+                    <MedicineVerifier task={task} prescribedMedicines={prescribedMedicines} onComplete={handleModuleComplete} onClose={handleModuleClose} />
+                ) : null}
+                {activeModule === 'checkin' ? (
+                    <EmotionCheckin task={task} onComplete={handleModuleComplete} onClose={handleModuleClose} />
+                ) : null}
             </Suspense>
         </>
     );

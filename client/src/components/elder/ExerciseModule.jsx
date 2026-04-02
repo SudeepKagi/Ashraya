@@ -1,281 +1,427 @@
-// FILE: client/src/components/elder/ExerciseModule.jsx
-import { useState, useRef, useCallback, useEffect } from 'react';
+﻿import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import useMediaPipe from '../../hooks/useMediaPipe';
 import useVoice from '../../hooks/useVoice';
 import api from '../../services/api';
+import { evaluateExerciseFrame, resolveExerciseProfile } from '../../utils/exerciseEngine';
 
-// Exercise definitions — landmarks to watch + form rules
-const EXERCISES = {
-    breathing_and_arm_raises: {
-        name: 'Arm Raises',
-        target: 6,
-        instruction: 'Raise both arms above your head slowly, then lower them.',
-        checkForm: (landmarks, getAngle) => {
-            if (!landmarks) return { feedback: 'Getting ready...', good: false, rep: false };
-            const L = landmarks;
-            // Left shoulder angle: wrist(15) - shoulder(11) - hip(23)
-            const leftAngle = getAngle(L[15], L[11], L[23]);
-            // Right shoulder angle: wrist(16) - shoulder(12) - hip(24)
-            const rightAngle = getAngle(L[16], L[12], L[24]);
-
-            if (!leftAngle || !rightAngle) return { feedback: 'Step back so your full body is visible.', good: false, rep: false };
-
-            const avg = (leftAngle + rightAngle) / 2;
-            if (avg > 150) return { feedback: '✅ Arms up! Hold for a moment.', good: true, rep: true };
-            if (avg > 90) return { feedback: 'Keep raising your arms higher!', good: false, rep: false };
-            return { feedback: 'Slowly raise both arms above your head.', good: false, rep: false };
-        }
-    },
-    seated_leg_raises: {
-        name: 'Seated Leg Raises',
-        target: 6,
-        instruction: 'Sit straight, raise one leg at a time until it is parallel to the floor.',
-        checkForm: (landmarks, getAngle) => {
-            if (!landmarks) return { feedback: 'Getting ready...', good: false, rep: false };
-            const L = landmarks;
-            const leftKnee = getAngle(L[23], L[25], L[27]);
-            const rightKnee = getAngle(L[24], L[26], L[28]);
-            if (!leftKnee || !rightKnee) return { feedback: 'Move back so your full legs are visible.', good: false, rep: false };
-            const maxAngle = Math.max(leftKnee, rightKnee);
-            if (maxAngle > 160) return { feedback: '✅ Great! Leg fully extended.', good: true, rep: true };
-            if (maxAngle > 120) return { feedback: 'Extend your leg a bit more!', good: false, rep: false };
-            return { feedback: 'Raise one leg straight out in front of you.', good: false, rep: false };
-        }
-    },
-    neck_stretches: {
-        name: 'Neck Stretches',
-        target: 4,
-        instruction: 'Slowly tilt your head to the left, hold, then to the right.',
-        checkForm: (landmarks) => {
-            if (!landmarks) return { feedback: 'Getting ready...', good: false, rep: false };
-            const nose = landmarks[0];
-            const leftEar = landmarks[7];
-            const rightEar = landmarks[8];
-            if (!nose || !leftEar || !rightEar) return { feedback: 'Look toward the camera.', good: false, rep: false };
-            const tilt = Math.abs(leftEar.y - rightEar.y);
-            if (tilt > 0.08) return { feedback: '✅ Good stretch! Hold it.', good: true, rep: true };
-            return { feedback: 'Slowly tilt your head to the left or right.', good: false, rep: false };
-        }
-    }
-};
+const formatTime = (seconds) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
 const ExerciseModule = ({ task, onComplete, onClose }) => {
-    const [phase, setPhase] = useState('intro'); // intro | active | done
-    const [reps, setReps] = useState(0);
-    const [feedback, setFeedback] = useState('');
-    const [inGoodForm, setInGoodForm] = useState(false);
-    const [elapsedSeconds, setElapsedSeconds] = useState(0);
-    const lastRepState = useRef(false);
-    const timerRef = useRef(null);
-
-    const exerciseKey = task?.exerciseType || 'breathing_and_arm_raises';
-    const exercise = EXERCISES[exerciseKey] || EXERCISES['breathing_and_arm_raises'];
-
+    const profile = useMemo(() => resolveExerciseProfile(task), [task]);
+    const targetReps = profile.targetReps;
     const { speak } = useVoice();
 
-    const handlePose = useCallback((landmarks) => {
-        const result = exercise.checkForm(landmarks, getAngle);
-        setFeedback(result.feedback);
-        setInGoodForm(result.good);
+    const [phase, setPhase] = useState('intro');
+    const [reps, setReps] = useState(0);
+    const [feedback, setFeedback] = useState('Stand where the camera can see your full movement.');
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    const [accuracy, setAccuracy] = useState(0);
+    const [statusLabel, setStatusLabel] = useState('ready');
+    const [userAngle, setUserAngle] = useState(null);
+    const [referenceAngle, setReferenceAngle] = useState(null);
 
-        // Count rep on rising edge (was false, now true)
-        if (result.rep && !lastRepState.current) {
-            setReps(prev => {
-                const next = prev + 1;
-                speak(next % 2 === 0 ? `${next} reps. Keep going!` : 'Good!');
+    const timerRef = useRef(null);
+    const repActiveRef = useRef(false);
+    const lastSpokenFeedbackRef = useRef(0);
+    const accuracySamplesRef = useRef([]);
+
+    const handlePose = useCallback((landmarks) => {
+        const result = evaluateExerciseFrame(landmarks, getAngle, profile);
+        setFeedback(result.feedback);
+        setAccuracy(result.accuracy);
+        setStatusLabel(result.status);
+        setUserAngle(result.userAngle);
+        setReferenceAngle(result.referenceAngle);
+
+        if (result.ready) {
+            accuracySamplesRef.current.push(result.accuracy);
+            if (accuracySamplesRef.current.length > 180) {
+                accuracySamplesRef.current.shift();
+            }
+        }
+
+        const repQualified = result.repDetected && result.accuracy >= profile.targetAccuracy;
+        if (repQualified && !repActiveRef.current) {
+            repActiveRef.current = true;
+            setReps((current) => {
+                const next = current + 1;
+                speak(next >= targetReps ? 'Final rep complete. Great work.' : `${next} reps done. Keep going.`);
                 return next;
             });
+        } else if (!result.repDetected || result.status === 'incorrect') {
+            repActiveRef.current = false;
         }
-        lastRepState.current = result.rep;
-    }, [exercise]);
+
+        const now = Date.now();
+        if (phase === 'active' && now - lastSpokenFeedbackRef.current > 4500 && result.ready) {
+            if (result.status === 'incorrect' || result.status === 'adjust') {
+                lastSpokenFeedbackRef.current = now;
+                speak(result.feedback);
+            }
+        }
+    }, [phase, profile, speak, targetReps]);
 
     const { videoRef, canvasRef, status, error, getAngle, stop } = useMediaPipe({
         onPoseResult: handlePose,
         enabled: phase === 'active'
     });
 
-    // Timer
     useEffect(() => {
-        if (phase !== 'active') return;
-        timerRef.current = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
+        if (phase !== 'active') return undefined;
+        timerRef.current = setInterval(() => setElapsedSeconds((current) => current + 1), 1000);
         return () => clearInterval(timerRef.current);
     }, [phase]);
 
-    // Auto-complete when target reps hit
     useEffect(() => {
-        if (reps >= exercise.target && phase === 'active') {
-            clearInterval(timerRef.current);
-            stop();
-            speak('Excellent work! Exercise complete. Well done!');
-            setPhase('done');
-        }
-    }, [reps, exercise.target, phase]);
+        if (reps < targetReps || phase !== 'active') return;
+
+        clearInterval(timerRef.current);
+        stop();
+        setPhase('done');
+        speak('Excellent work. Exercise complete and ready to be marked done.');
+    }, [phase, reps, speak, stop, targetReps]);
+
+    useEffect(() => () => {
+        clearInterval(timerRef.current);
+        stop();
+    }, [stop]);
 
     const startExercise = () => {
-        speak(`Starting ${exercise.name}. ${exercise.instruction}`);
+        accuracySamplesRef.current = [];
+        repActiveRef.current = false;
+        setReps(0);
+        setElapsedSeconds(0);
+        setAccuracy(0);
+        setFeedback(profile.instruction);
         setPhase('active');
+        speak(`Starting ${profile.name}. ${profile.instruction}`);
     };
 
     const handleEarlyStop = async (reason) => {
         stop();
         clearInterval(timerRef.current);
-        speak('That is okay. Rest well.');
+        speak('That is okay. Rest well and try again later if you feel better.');
         await api.put(`/schedule/task/${task.taskId}`, { status: 'refused', refusalReason: reason });
         onClose();
     };
 
     const handleComplete = async () => {
-        await api.put(`/schedule/task/${task.taskId}`, { status: 'done', notes: `Completed ${reps} reps in ${elapsedSeconds}s` });
+        const scores = accuracySamplesRef.current;
+        const avgAccuracy = scores.length
+            ? Number((scores.reduce((sum, value) => sum + value, 0) / scores.length).toFixed(1))
+            : 0;
+
+        await api.put(`/schedule/task/${task.taskId}`, {
+            status: 'done',
+            notes: `Completed ${reps} reps in ${elapsedSeconds}s with ${avgAccuracy}% average accuracy`
+        });
         onComplete?.();
         onClose();
     };
 
-    const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    const avgAccuracy = accuracySamplesRef.current.length
+        ? Number((accuracySamplesRef.current.reduce((sum, value) => sum + value, 0) / accuracySamplesRef.current.length).toFixed(1))
+        : 0;
+
+    const progress = Math.min((reps / targetReps) * 100, 100);
+    const accentClass = statusLabel === 'correct' ? 'bg-emerald-500/90' : statusLabel === 'adjust' ? 'bg-amber-500/90' : 'bg-slate-900/85';
+    const referenceVideo = profile.videos?.[0];
 
     return (
-        <div className="fixed inset-0 bg-black z-50 flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 bg-gray-900">
-                <div>
-                    <p className="text-white font-semibold">{exercise.name}</p>
-                    <p className="text-gray-400 text-xs">{task?.title}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                    {phase === 'active' && (
-                        <span className="text-gray-300 text-sm font-mono">{formatTime(elapsedSeconds)}</span>
-                    )}
-                    <button onClick={() => { stop(); onClose(); }} className="text-gray-400 hover:text-white text-sm" aria-label="Close exercise">✕ Exit</button>
-                </div>
-            </div>
-
-            {/* Intro phase */}
-            {phase === 'intro' && (
-                <div className="flex-1 flex flex-col items-center justify-center px-6 text-center bg-gray-900">
-                    <div className="text-6xl mb-6">🏃</div>
-                    <h2 className="text-white text-2xl font-bold mb-3">{exercise.name}</h2>
-                    <p className="text-gray-300 mb-2">{exercise.instruction}</p>
-                    <p className="text-indigo-400 font-semibold mb-8">Target: {exercise.target} reps</p>
-                    <div className="bg-gray-800 rounded-2xl p-4 mb-8 text-left w-full max-w-sm">
-                        <p className="text-yellow-400 text-sm font-semibold mb-2">⚠️ Before you start</p>
-                        <ul className="text-gray-300 text-sm space-y-1">
-                            <li>• Make sure you have enough space around you</li>
-                            <li>• Stop immediately if you feel pain or dizziness</li>
-                            <li>• Keep your phone/camera stable and at eye level</li>
-                        </ul>
-                    </div>
-                    <button
-                        onClick={startExercise}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-10 rounded-2xl text-lg transition-colors"
-                        aria-label="Start exercise"
-                    >
-                        Start Exercise
-                    </button>
-                    <button
-                        onClick={() => handleEarlyStop('Too tired to exercise today')}
-                        className="mt-4 text-gray-500 hover:text-gray-300 text-sm"
-                        aria-label="Skip exercise"
-                    >
-                        I can't do this today
-                    </button>
-                </div>
-            )}
-
-            {/* Active phase */}
-            {phase === 'active' && (
-                <div className="flex-1 flex flex-col">
-                    {/* Camera + skeleton */}
-                    <div className="relative flex-1 bg-black">
-                        <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline />
-                        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover" />
-
-                        {/* Loading overlay */}
-                        {status === 'loading' && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-80">
-                                <div className="text-center">
-                                    <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                                    <p className="text-white text-sm">Loading pose detection...</p>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Error overlay */}
-                        {status === 'error' && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-90 p-6">
-                                <div className="text-center">
-                                    <p className="text-red-400 text-lg font-semibold mb-2">Camera Error</p>
-                                    <p className="text-gray-300 text-sm mb-4">{error}</p>
-                                    <button onClick={() => handleEarlyStop('Camera not available')} className="bg-gray-700 text-white px-4 py-2 rounded-xl text-sm">
-                                        Skip Exercise
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Feedback overlay */}
-                        {status === 'ready' && (
-                            <div className={`absolute bottom-4 left-4 right-4 rounded-xl px-4 py-3 text-center transition-colors ${inGoodForm ? 'bg-emerald-600' : 'bg-gray-900 bg-opacity-80'}`}>
-                                <p className="text-white text-sm font-semibold">{feedback}</p>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Rep counter bar */}
-                    <div className="bg-gray-900 px-4 py-4">
-                        <div className="flex items-center justify-between mb-2">
-                            <div className="text-center">
-                                <p className="text-4xl font-bold text-white">{reps}</p>
-                                <p className="text-gray-400 text-xs">of {exercise.target} reps</p>
-                            </div>
-                            <div className="flex-1 mx-4">
-                                <div className="w-full bg-gray-700 rounded-full h-3">
-                                    <div
-                                        className="bg-indigo-500 h-3 rounded-full transition-all"
-                                        style={{ width: `${Math.min((reps / exercise.target) * 100, 100)}%` }}
-                                    />
-                                </div>
-                            </div>
+        <div className="fixed inset-0 z-50 bg-[rgba(6,11,23,0.96)] backdrop-blur-xl">
+            <div className="h-full w-full overflow-y-auto">
+                <div className="mx-auto flex min-h-full w-full max-w-[1440px] flex-col px-4 py-4 lg:px-6">
+                    <div className="flex items-center justify-between rounded-[24px] border border-white/10 bg-white/5 px-5 py-4">
+                        <div>
+                            <p className="eyebrow">Guided Exercise</p>
+                            <h2 className="section-title mt-1">{profile.name}</h2>
+                            <p className="section-subtitle mt-1">{task?.title}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            {phase === 'active' ? (
+                                <span className="chart-tooltip font-mono">{formatTime(elapsedSeconds)}</span>
+                            ) : null}
                             <button
-                                onClick={() => handleEarlyStop('Feeling tired or pain')}
-                                className="bg-red-900 hover:bg-red-800 text-red-300 text-xs font-semibold px-3 py-2 rounded-xl"
-                                aria-label="Stop exercise due to pain or fatigue"
+                                onClick={() => {
+                                    stop();
+                                    onClose();
+                                }}
+                                className="range-pill"
+                                aria-label="Close exercise"
                             >
-                                I feel pain / tired
+                                Exit
                             </button>
                         </div>
                     </div>
-                </div>
-            )}
 
-            {/* Done phase */}
-            {phase === 'done' && (
-                <div className="flex-1 flex flex-col items-center justify-center bg-gray-900 px-6 text-center">
-                    <div className="text-7xl mb-6">🎉</div>
-                    <h2 className="text-white text-3xl font-bold mb-2">Great Job!</h2>
-                    <p className="text-gray-300 mb-1">{reps} reps completed</p>
-                    <p className="text-gray-400 text-sm mb-8">Time: {formatTime(elapsedSeconds)}</p>
-                    <div className="w-full max-w-xs bg-gray-800 rounded-2xl p-4 mb-8 space-y-2">
-                        <div className="flex justify-between text-sm">
-                            <span className="text-gray-400">Exercise</span>
-                            <span className="text-white font-medium">{exercise.name}</span>
+                    {phase === 'intro' ? (
+                        <div className="grid flex-1 gap-4 py-4 lg:grid-cols-[1.2fr_0.8fr]">
+                            <section className="rounded-[28px] border border-white/10 bg-white/5 p-6">
+                                <p className="eyebrow">Exercise Flow</p>
+                                <h3 className="section-title mt-2">Reference demo and live pose scoring</h3>
+                                <p className="section-subtitle mt-3">{profile.instruction}</p>
+
+                                <div className="mt-6 grid gap-4 sm:grid-cols-3">
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">Target Reps</p>
+                                        <p className="metric-inline-value mt-3">{targetReps}</p>
+                                    </div>
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">Accuracy Goal</p>
+                                        <p className="metric-inline-value mt-3">{profile.targetAccuracy}%</p>
+                                    </div>
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">{profile.metricLabel}</p>
+                                        <p className="metric-inline-value mt-3">{profile.idealRange[0]}-{profile.idealRange[1]}°</p>
+                                    </div>
+                                </div>
+
+                                <div className="mt-6 rounded-[24px] border border-white/10 bg-[#050b17] p-3">
+                                    {referenceVideo ? (
+                                        <>
+                                            <div className="overflow-hidden rounded-[20px] border border-white/10">
+                                                <iframe
+                                                    src={referenceVideo.embedUrl}
+                                                    title={referenceVideo.title}
+                                                    className="aspect-video w-full"
+                                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                    allowFullScreen
+                                                />
+                                            </div>
+                                            <div className="mt-3 flex items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-white">{referenceVideo.title}</p>
+                                                    <p className="text-xs muted-text mt-1">Reference movement from the exercise package</p>
+                                                </div>
+                                                {profile.videos[1] ? (
+                                                    <a
+                                                        href={profile.videos[1].embedUrl.replace('/embed/', '/watch?v=')}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="range-pill"
+                                                    >
+                                                        Backup Demo
+                                                    </a>
+                                                ) : null}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="glass-panel p-5">
+                                            <p className="text-sm text-white">Reference video unavailable. The module will still use pose-angle scoring live.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+
+                            <section className="rounded-[28px] border border-white/10 bg-white/5 p-6">
+                                <p className="eyebrow">Before You Start</p>
+                                <div className="mt-4 space-y-4">
+                                    <div className="glass-panel p-4">
+                                        <p className="text-sm font-semibold text-white">Camera setup</p>
+                                        <p className="text-sm muted-text mt-2">Place the phone or laptop so your full movement is visible. Sit or stand in the center of the frame.</p>
+                                    </div>
+                                    <div className="glass-panel p-4">
+                                        <p className="text-sm font-semibold text-white">Posture reminder</p>
+                                        <p className="text-sm muted-text mt-2">{profile.postureHint}</p>
+                                    </div>
+                                    <div className="glass-panel p-4">
+                                        <p className="text-sm font-semibold text-white">Safety</p>
+                                        <p className="text-sm muted-text mt-2">Stop immediately if there is pain, dizziness, chest discomfort, or unusual shortness of breath.</p>
+                                    </div>
+                                </div>
+
+                                <div className="mt-6 flex flex-wrap gap-3">
+                                    <button
+                                        onClick={startExercise}
+                                        className="header-pill-button"
+                                        aria-label="Start exercise"
+                                    >
+                                        Start Exercise
+                                    </button>
+                                    <button
+                                        onClick={() => handleEarlyStop('Too tired to exercise today')}
+                                        className="range-pill"
+                                        aria-label="Skip exercise"
+                                    >
+                                        I cannot do this now
+                                    </button>
+                                </div>
+                            </section>
                         </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-gray-400">Reps done</span>
-                            <span className="text-emerald-400 font-medium">{reps} / {exercise.target}</span>
+                    ) : null}
+
+                    {phase === 'active' ? (
+                        <div className="grid flex-1 gap-4 py-4 lg:grid-cols-[0.9fr_1.1fr]">
+                            <section className="rounded-[28px] border border-white/10 bg-white/5 p-4">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="eyebrow">Reference Coach</p>
+                                        <h3 className="section-title mt-1">{profile.name} Demo</h3>
+                                    </div>
+                                    <span className="chart-tooltip">{profile.metricLabel}</span>
+                                </div>
+
+                                <div className="mt-4 overflow-hidden rounded-[22px] border border-white/10 bg-[#050b17]">
+                                    {referenceVideo ? (
+                                        <iframe
+                                            src={referenceVideo.embedUrl}
+                                            title={referenceVideo.title}
+                                            className="aspect-video w-full"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                            allowFullScreen
+                                        />
+                                    ) : (
+                                        <div className="flex aspect-video items-center justify-center text-sm muted-text">
+                                            Reference video unavailable
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">Target Angle</p>
+                                        <p className="metric-inline-value mt-3">{profile.idealRange[0]}-{profile.idealRange[1]}°</p>
+                                    </div>
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">Reference Angle</p>
+                                        <p className="metric-inline-value mt-3">{referenceAngle ?? '--'}°</p>
+                                    </div>
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">Average Accuracy</p>
+                                        <p className="metric-inline-value mt-3">{avgAccuracy}%</p>
+                                    </div>
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">Current Angle</p>
+                                        <p className="metric-inline-value mt-3">{userAngle ?? '--'}°</p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section className="rounded-[28px] border border-white/10 bg-white/5 p-4">
+                                <div className="relative min-h-[420px] overflow-hidden rounded-[24px] border border-white/10 bg-black">
+                                    <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" muted playsInline />
+                                    <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
+
+                                    {status === 'loading' ? (
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+                                            <div className="text-center">
+                                                <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-[var(--accent-teal)] border-t-transparent" />
+                                                <p className="text-sm text-white">Loading live pose detection...</p>
+                                            </div>
+                                        </div>
+                                    ) : null}
+
+                                    {status === 'error' ? (
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/85 p-6">
+                                            <div className="max-w-sm text-center">
+                                                <p className="text-lg font-semibold text-white">Camera Error</p>
+                                                <p className="mt-2 text-sm muted-text">{error}</p>
+                                                <button
+                                                    onClick={() => handleEarlyStop('Camera not available')}
+                                                    className="header-pill-button mt-4"
+                                                >
+                                                    Skip Exercise
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
+
+                                    <div className="absolute left-4 right-4 top-4 flex flex-wrap gap-3">
+                                        <div className="chart-tooltip">
+                                            <span className="metric-label">Status</span>
+                                            <span className="ml-2 text-white capitalize">{statusLabel}</span>
+                                        </div>
+                                        <div className="chart-tooltip">
+                                            <span className="metric-label">Accuracy</span>
+                                            <span className="ml-2 text-white">{accuracy}%</span>
+                                        </div>
+                                        <div className="chart-tooltip">
+                                            <span className="metric-label">Reps</span>
+                                            <span className="ml-2 text-white">{reps}/{targetReps}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className={`absolute bottom-4 left-4 right-4 rounded-[20px] px-4 py-3 text-center ${accentClass}`}>
+                                        <p className="text-sm font-semibold text-white">{feedback}</p>
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+                                    <div className="glass-panel p-4 text-center">
+                                        <p className="metric-label">Progress</p>
+                                        <p className="mt-3 text-4xl font-semibold text-white">{reps}</p>
+                                        <p className="text-xs muted-text mt-1">of {targetReps} reps</p>
+                                    </div>
+
+                                    <div className="glass-panel p-4">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-sm font-semibold text-white">Session Progress</p>
+                                            <span className="text-xs muted-text">{formatTime(elapsedSeconds)}</span>
+                                        </div>
+                                        <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
+                                            <div
+                                                className="h-full rounded-full bg-[var(--accent-teal)] transition-all"
+                                                style={{ width: `${progress}%` }}
+                                            />
+                                        </div>
+                                        <p className="mt-3 text-sm muted-text">The rep counter follows the same angle-difference idea as your Python session tracker.</p>
+                                    </div>
+
+                                    <button
+                                        onClick={() => handleEarlyStop('Feeling tired or pain')}
+                                        className="emergency-inline-button h-fit"
+                                        aria-label="Stop exercise due to pain or fatigue"
+                                    >
+                                        Stop / Pain
+                                    </button>
+                                </div>
+                            </section>
                         </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-gray-400">Duration</span>
-                            <span className="text-white font-medium">{formatTime(elapsedSeconds)}</span>
+                    ) : null}
+
+                    {phase === 'done' ? (
+                        <div className="flex flex-1 items-center justify-center py-6">
+                            <section className="w-full max-w-2xl rounded-[28px] border border-white/10 bg-white/5 p-8 text-center">
+                                <p className="eyebrow">Exercise Complete</p>
+                                <h2 className="section-title mt-2">Well done.</h2>
+                                <p className="section-subtitle mt-3">The live session matched your reference exercise logic and is ready to be saved.</p>
+
+                                <div className="mt-6 grid gap-4 sm:grid-cols-3">
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">Exercise</p>
+                                        <p className="metric-inline-value mt-3">{profile.name}</p>
+                                    </div>
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">Reps</p>
+                                        <p className="metric-inline-value mt-3">{reps}/{targetReps}</p>
+                                    </div>
+                                    <div className="glass-panel p-4">
+                                        <p className="metric-label">Avg Accuracy</p>
+                                        <p className="metric-inline-value mt-3">{avgAccuracy}%</p>
+                                    </div>
+                                </div>
+
+                                <div className="mt-6 flex flex-wrap justify-center gap-3">
+                                    <button
+                                        onClick={handleComplete}
+                                        className="header-pill-button"
+                                        aria-label="Mark exercise as complete"
+                                    >
+                                        Mark Complete
+                                    </button>
+                                    <button
+                                        onClick={onClose}
+                                        className="range-pill"
+                                        aria-label="Close completed exercise"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                            </section>
                         </div>
-                    </div>
-                    <button
-                        onClick={handleComplete}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 px-10 rounded-2xl text-lg transition-colors"
-                        aria-label="Mark exercise as complete"
-                    >
-                        ✓ Mark Complete
-                    </button>
+                    ) : null}
                 </div>
-            )}
+            </div>
         </div>
     );
 };

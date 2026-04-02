@@ -22,7 +22,8 @@ const emotionLogSchema = new mongoose.Schema(
         date: { type: Date, required: true },
         sessions: [sessionSchema],
         dailyMoodScore: { type: Number, min: 0, max: 10, default: 5 },
-        summary: { type: String }
+        summary: { type: String },
+        isRead: { type: Boolean, default: false }
     },
     { timestamps: true }
 );

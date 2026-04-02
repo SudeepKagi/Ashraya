@@ -1,6 +1,7 @@
 // FILE: client/src/context/AuthContext.jsx
 import { createContext, useContext, useReducer, useEffect } from 'react';
 import api from '../services/api';
+import { connectSocket, disconnectSocket } from '../services/socketService';
 
 const AuthContext = createContext(null);
 
@@ -34,10 +35,12 @@ export const AuthProvider = ({ children }) => {
             localStorage.setItem('ashraya_token', state.token);
             localStorage.setItem('ashraya_user', JSON.stringify(state.user));
             api.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
+            connectSocket(state.user.id, state.user.role);
         } else {
             localStorage.removeItem('ashraya_token');
             localStorage.removeItem('ashraya_user');
             delete api.defaults.headers.common['Authorization'];
+            disconnectSocket();
         }
     }, [state.token, state.user]);
 
