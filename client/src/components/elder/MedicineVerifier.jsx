@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { createWorker } from 'tesseract.js';
 import useVoice from '../../hooks/useVoice';
 import api from '../../services/api';
@@ -340,7 +340,6 @@ const MedicineVerifier = ({ task, prescribedMedicines = [], onComplete, onClose 
                                         {matchResult.matched && (
                                             <p className="text-sm text-white mt-4">Take at: {matchResult.times?.join(', ') || 'No schedule saved'}</p>
                                         )}
-                                        <div className="medicine-ocr-block">{ocrResult || 'No OCR result available.'}</div>
                                     </div>
 
                                     <div className="medicine-actions compact-actions">

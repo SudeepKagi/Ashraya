@@ -64,40 +64,40 @@ const buildDonutSVG = (pct, color, size = 80) => {
 
 const buildBarChart = (tasks = []) => {
     const types = ['medicine', 'exercise', 'meal', 'water', 'other'];
-    const colors = { medicine: '#8b5cf6', exercise: '#10b981', meal: '#f59e0b', water: '#3b82f6', other: '#6b7280' };
+    const colors = { medicine: '#7c3aed', exercise: '#10b981', meal: '#f59e0b', water: '#3b82f6', other: '#6b7280' };
     const rows = types.map((type) => {
         const all = tasks.filter((t) => t.type === type);
         const done = all.filter((t) => t.status === 'done').length;
         const pct = all.length > 0 ? Math.round((done / all.length) * 100) : 0;
         if (all.length === 0) return '';
         return `
-        <div style="margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-            <span style="font-size:13px;color:#374151;text-transform:capitalize">${type}</span>
-            <span style="font-size:13px;font-weight:600;color:${colors[type]}">${done}/${all.length}</span>
-          </div>
-          <div style="background:#e5e7eb;border-radius:999px;height:10px;overflow:hidden">
-            <div style="width:${pct}%;background:${colors[type]};height:100%;border-radius:999px;transition:width 0.3s"></div>
-          </div>
+        <div class="bar-row">
+          <span class="bar-label">${type.charAt(0).toUpperCase() + type.slice(1)}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${colors[type]}"></div></div>
+          <span class="bar-stat" style="color:${colors[type]}">${done}/${all.length}</span>
         </div>`;
     });
-    return rows.join('');
+    return rows.join('') || '<p style="color:#9ca3af;font-size:13px">No tasks recorded.</p>';
 };
 
 const buildMoodTimeline = (sessions = []) => {
     if (!sessions.length) return '<p style="color:#9ca3af;font-size:13px">No emotion sessions recorded today.</p>';
     return sessions.map((s) => {
         const time = new Date(s.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-        const moodColors = { happy: '#10b981', sad: '#ef4444', neutral: '#6b7280', anxious: '#f59e0b', tired: '#8b5cf6' };
-        const dot = moodColors[s.mood] || '#6b7280';
+        const moodColors = { happy: '#10b981', sad: '#ef4444', neutral: '#6b7280', anxious: '#f59e0b', tired: '#8b5cf6', confused: '#f59e0b' };
+        const dot = moodColors[s.moodLabel] || '#6b7280';
+        const sentLine = s.sentimentScore != null
+            ? `<span style="font-size:10px;color:#9ca3af">Sentiment: ${(s.sentimentScore >= 0 ? '+' : '')}${s.sentimentScore?.toFixed(2)}</span>`
+            : '';
         return `
-        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
-          <div style="min-width:36px;text-align:center">
-            <div style="width:12px;height:12px;border-radius:50%;background:${dot};margin:4px auto"></div>
-            <span style="font-size:10px;color:#9ca3af">${time}</span>
+        <div class="mood-item">
+          <div style="min-width:44px;text-align:center">
+            <div class="mood-dot" style="background:${dot};margin:0 auto"></div>
+            <p style="font-size:10px;color:#9ca3af;margin-top:3px">${time}</p>
           </div>
-          <div style="background:#f9fafb;border-left:3px solid ${dot};padding:8px 12px;border-radius:0 8px 8px 0;flex:1">
-            <p style="margin:0 0 4px;font-size:13px;color:#374151;font-weight:500">${s.question || 'Check-in'}</p>
+          <div class="mood-card" style="border-left-color:${dot}">
+            <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:${dot};text-transform:capitalize">${s.moodLabel || 'neutral'} ${sentLine}</p>
+            <p style="margin:0 0 4px;font-size:13px;color:#374151;font-weight:500">${s.question || 'Emotion Check-in'}</p>
             <p style="margin:0;font-size:12px;color:#6b7280">${s.response || 'No response recorded'}</p>
           </div>
         </div>`;
@@ -139,19 +139,19 @@ const buildTaskTable = (tasks = []) => {
 
 const buildHealthAlerts = (healthLogs = []) => {
     if (!healthLogs.length) return `
-    <div style="display:flex;align-items:center;gap:10px;padding:14px;background:#f0fdf4;border-radius:10px;border:1px solid #bbf7d0">
-      <span style="font-size:20px">✅</span>
-      <p style="margin:0;color:#166534;font-size:13px;font-weight:500">No health alerts today. All vitals normal.</p>
+    <div class="alert-ok">
+      <span style="font-size:18px">✓</span>
+      <p style="margin:0;color:#166534;font-size:13px;font-weight:500">No health alerts today. All monitored vitals within normal range.</p>
     </div>`;
 
     return healthLogs.map((log) => `
-    <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;background:#fef2f2;border-radius:10px;border:1px solid #fecaca;margin-bottom:8px">
-      <span style="font-size:18px;margin-top:2px">⚠️</span>
+    <div class="alert-row">
+      <span style="font-size:17px;margin-top:2px">⚠</span>
       <div>
-        <p style="margin:0 0 2px;color:#991b1b;font-size:13px;font-weight:600">
+        <p style="margin:0 0 3px;color:#991b1b;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">
           ${new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
         </p>
-        <p style="margin:0;color:#7f1d1d;font-size:12px">${log.anomalyReason || `${log.type} anomaly detected`}</p>
+        <p style="margin:0;color:#7f1d1d;font-size:13px">${log.anomalyReason || `${log.type} anomaly detected`}</p>
       </div>
     </div>`).join('');
 };
@@ -168,103 +168,170 @@ const buildReportHtml = ({ elder, report, schedule, emotionLog, healthLogs }) =>
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>AASHRAYA — Daily Care Report</title>
+  <title>ASHRAYA — Daily Care Report · ${elder.name}</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f3f4f6; color: #1f2937; }
-    .page { max-width: 860px; margin: 0 auto; padding: 32px 16px; }
-    .card { background: white; border-radius: 16px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-    h2 { font-size: 16px; font-weight: 700; color: #1f2937; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-    @media print { body { background: white; } .page { padding: 0; } }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f0; color: #1a1a1a; font-size: 14px; line-height: 1.6; }
+    .page { max-width: 820px; margin: 32px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+
+    /* ─── Header bar ─── */
+    .report-header { background: #006d6d; color: white; padding: 28px 36px; }
+    .report-header-top { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; }
+    .report-brand { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.75; margin-bottom: 6px; }
+    .report-title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+    .report-subtitle { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+    .report-meta { text-align: right; }
+    .report-date { font-size: 13px; opacity: 0.85; }
+    .report-badge { display: inline-block; margin-top: 8px; padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; border: 1.5px solid rgba(255,255,255,0.5); background: rgba(255,255,255,0.12); }
+
+    /* ─── Info strip ─── */
+    .info-strip { background: #f0fafa; border-bottom: 2px solid #e0f0f0; padding: 14px 36px; display: flex; gap: 32px; flex-wrap: wrap; }
+    .info-item label { font-size: 10px; color: #006d6d; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px; }
+    .info-item span { font-size: 13px; font-weight: 600; color: #1a1a1a; }
+
+    /* ─── Body ─── */
+    .report-body { padding: 28px 36px; }
+
+    /* ─── Section heading ─── */
+    .section-heading { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #006d6d; padding-bottom: 8px; border-bottom: 1.5px solid #e0f0f0; margin-bottom: 16px; margin-top: 28px; }
+    .section-heading:first-child { margin-top: 0; }
+
+    /* ─── Metric cards ─── */
+    .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 4px; }
+    .metric-card { border-radius: 10px; padding: 16px 14px; text-align: center; border: 1px solid #e5e7eb; }
+    .metric-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin-bottom: 10px; }
+    .metric-value { font-size: 20px; font-weight: 700; line-height: 1.1; }
+    .metric-sub { font-size: 11px; color: #6b7280; margin-top: 4px; }
+
+    /* ─── AI summary ─── */
+    .ai-summary-box { background: #f0fafa; border-left: 4px solid #006d6d; border-radius: 0 10px 10px 0; padding: 16px 20px; font-size: 13.5px; line-height: 1.75; color: #1f2937; }
+
+    /* ─── Bar chart ─── */
+    .bar-row { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+    .bar-row .bar-label { width: 90px; font-size: 12px; color: #374151; flex-shrink: 0; text-transform: capitalize; }
+    .bar-row .bar-track { flex: 1; background: #e5e7eb; border-radius: 999px; height: 10px; overflow: hidden; }
+    .bar-row .bar-fill  { height: 100%; border-radius: 999px; }
+    .bar-row .bar-stat  { width: 46px; font-size: 12px; font-weight: 600; text-align: right; flex-shrink: 0; }
+
+    /* ─── Table ─── */
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th { padding: 10px 12px; text-align: left; color: #6b7280; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; background: #f9fafb; border-bottom: 1.5px solid #e5e7eb; }
+    td { padding: 10px 12px; color: #1f2937; border-bottom: 1px solid #f3f4f6; }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: #fafafa; }
+    .tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: capitalize; }
+
+    /* ─── Health alerts ─── */
+    .alert-ok  { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0; }
+    .alert-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca; margin-bottom: 8px; }
+
+    /* ─── Mood timeline ─── */
+    .mood-item { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px; }
+    .mood-dot  { width: 12px; height: 12px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+    .mood-card { flex: 1; background: #f9fafb; border-left: 3px solid #e5e7eb; border-radius: 0 8px 8px 0; padding: 10px 14px; }
+
+    /* ─── Footer ─── */
+    .report-footer { margin-top: 32px; padding: 20px 36px; background: #f9fafb; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+    .footer-brand { font-size: 13px; font-weight: 700; color: #006d6d; }
+    .footer-meta  { font-size: 11px; color: #9ca3af; line-height: 1.6; text-align: right; }
+    .confidential { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: #9ca3af; text-transform: uppercase; border-top: 1px solid #e5e7eb; padding-top: 12px; margin-top: 12px; text-align: center; }
+
+    @media print { body { background: white; } .page { box-shadow: none; margin: 0; } }
   </style>
 </head>
 <body>
 <div class="page">
 
   <!-- HEADER -->
-  <div style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);border-radius:20px;padding:28px 32px;margin-bottom:20px;color:white">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+  <div class="report-header">
+    <div class="report-header-top">
       <div>
-        <div style="font-size:13px;opacity:0.8;margin-bottom:4px;letter-spacing:1px;text-transform:uppercase">Daily Care Report</div>
-        <h1 style="font-size:26px;font-weight:700;margin-bottom:4px">🌿 AASHRAYA</h1>
-        <p style="opacity:0.85;font-size:14px">${elder.name} &nbsp;·&nbsp; Age ${elder.age || 'N/A'}</p>
+        <p class="report-brand">Ashraya Elder Care System</p>
+        <h1 class="report-title">Daily Care Report</h1>
+        <p class="report-subtitle">${elder.name}&nbsp;&nbsp;|&nbsp;&nbsp;Age ${elder.age || 'N/A'}</p>
       </div>
-      <div style="text-align:right">
-        <div style="font-size:13px;opacity:0.75">${date}</div>
-        <div style="margin-top:8px;background:rgba(255,255,255,0.15);border-radius:10px;padding:6px 14px;font-size:13px;font-weight:600">
-          Overall: ${adherence.label}
-        </div>
+      <div class="report-meta">
+        <p class="report-date">${date}</p>
+        <span class="report-badge">Overall: ${adherence.label}</span>
       </div>
     </div>
   </div>
 
-  <!-- METRIC CARDS -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:20px">
-
-    <div class="card" style="text-align:center;border-top:4px solid #4f46e5">
-      ${buildDonutSVG(report.taskCompletion, '#4f46e5')}
-      <p style="margin-top:8px;font-size:13px;font-weight:600;color:#374151">Task Completion</p>
-      <p style="font-size:12px;color:#9ca3af;margin-top:2px">${schedule?.tasks?.filter(t => t.status === 'done').length || 0} of ${schedule?.tasks?.length || 0} tasks</p>
-    </div>
-
-    <div class="card" style="text-align:center;border-top:4px solid ${mood.color}">
-      <div style="font-size:42px;margin:6px 0">${mood.emoji}</div>
-      <p style="font-size:22px;font-weight:700;color:${mood.color}">${report.moodScore}<span style="font-size:13px;color:#9ca3af">/10</span></p>
-      <p style="font-size:13px;font-weight:600;color:#374151">Mood Score</p>
-      <p style="font-size:12px;color:${mood.color};margin-top:2px">${mood.label}</p>
-    </div>
-
-    <div class="card" style="text-align:center;border-top:4px solid #8b5cf6">
-      ${buildDonutSVG(report.medicineAdherence, '#8b5cf6')}
-      <p style="margin-top:8px;font-size:13px;font-weight:600;color:#374151">Medicine Adherence</p>
-      <p style="font-size:12px;color:#9ca3af;margin-top:2px">${getAdherenceLabel(report.medicineAdherence).label}</p>
-    </div>
-
-    <div class="card" style="text-align:center;border-top:4px solid #10b981">
-      <div style="font-size:42px;margin:12px 0">${report.exerciseCompleted ? '🏃' : '🛋️'}</div>
-      <p style="font-size:15px;font-weight:700;color:${report.exerciseCompleted ? '#10b981' : '#ef4444'}">
-        ${report.exerciseCompleted ? 'Completed' : 'Not Done'}
-      </p>
-      <p style="font-size:13px;font-weight:600;color:#374151;margin-top:4px">Exercise</p>
-    </div>
-
+  <!-- INFO STRIP -->
+  <div class="info-strip">
+    <div class="info-item"><label>Report Date</label><span>${date}</span></div>
+    <div class="info-item"><label>Conditions</label><span>${elder.profile?.diseases?.join(', ') || 'None recorded'}</span></div>
+    <div class="info-item"><label>Report Type</label><span>AI-Generated Daily Summary</span></div>
+    <div class="info-item"><label>Sent to Guardian</label><span>${report.sentToGuardian ? 'Yes' : 'No'}</span></div>
   </div>
 
-  <!-- AI SUMMARY -->
-  <div class="card" style="border-left:5px solid #4f46e5">
-    <h2>🤖 AI Summary</h2>
-    <p style="font-size:14px;line-height:1.7;color:#374151">${report.aiSummary || 'No summary available.'}</p>
-  </div>
+  <div class="report-body">
 
-  <!-- TASK BREAKDOWN BAR CHART -->
-  <div class="card">
-    <h2>📊 Task Breakdown by Category</h2>
+    <!-- METRICS -->
+    <p class="section-heading">Health Metrics Overview</p>
+    <div class="metrics-grid">
+
+      <div class="metric-card" style="border-top: 3px solid #006d6d;">
+        ${buildDonutSVG(report.taskCompletion, '#006d6d')}
+        <p class="metric-label" style="margin-top:8px">Task Completion</p>
+        <p class="metric-sub">${schedule?.tasks?.filter(t => t.status === 'done').length || 0} of ${schedule?.tasks?.length || 0} tasks</p>
+      </div>
+
+      <div class="metric-card" style="border-top: 3px solid ${mood.color};">
+        <div style="font-size:40px;margin:6px 0">${mood.emoji}</div>
+        <div class="metric-value" style="color:${mood.color}">${report.moodScore}<span style="font-size:13px;color:#9ca3af">/10</span></div>
+        <p class="metric-label" style="margin-top:8px">Mood Score</p>
+        <p class="metric-sub" style="color:${mood.color}">${mood.label}</p>
+      </div>
+
+      <div class="metric-card" style="border-top: 3px solid #7c3aed;">
+        ${buildDonutSVG(report.medicineAdherence, '#7c3aed')}
+        <p class="metric-label" style="margin-top:8px">Medicine Adherence</p>
+        <p class="metric-sub">${getAdherenceLabel(report.medicineAdherence).label}</p>
+      </div>
+
+      <div class="metric-card" style="border-top: 3px solid ${report.exerciseCompleted ? '#10b981' : '#ef4444'};">
+        <div style="font-size:40px;margin:12px 0">${report.exerciseCompleted ? '🏃' : '🛋️'}</div>
+        <div class="metric-value" style="font-size:15px;color:${report.exerciseCompleted ? '#10b981' : '#ef4444'}">${report.exerciseCompleted ? 'Completed' : 'Not Done'}</div>
+        <p class="metric-label" style="margin-top:8px">Exercise</p>
+      </div>
+
+    </div>
+
+    <!-- AI SUMMARY -->
+    <p class="section-heading" style="margin-top:28px">AI-Generated Care Summary</p>
+    <div class="ai-summary-box">${report.aiSummary || 'No summary available for this report.'}</div>
+
+    <!-- TASK BREAKDOWN -->
+    <p class="section-heading">Task Completion by Category</p>
     ${buildBarChart(tasks)}
-  </div>
 
-  <!-- TASK TABLE -->
-  <div class="card">
-    <h2>📋 Task Schedule</h2>
+    <!-- TASK TABLE -->
+    <p class="section-heading">Full Task Schedule</p>
     ${buildTaskTable(tasks)}
-  </div>
 
-  <!-- HEALTH ALERTS -->
-  <div class="card">
-    <h2>❤️ Health Alerts</h2>
+    <!-- HEALTH ALERTS -->
+    <p class="section-heading">Health & Safety Alerts</p>
     ${buildHealthAlerts(healthLogs)}
-  </div>
 
-  <!-- MOOD TIMELINE -->
-  <div class="card">
-    <h2>💬 Emotion Check-ins</h2>
+    <!-- MOOD TIMELINE -->
+    <p class="section-heading">Emotion Check-in Timeline</p>
     ${buildMoodTimeline(sessions)}
+
   </div>
 
   <!-- FOOTER -->
-  <div style="text-align:center;padding:20px;color:#9ca3af;font-size:12px">
-    Generated by AASHRAYA Elder Care System &nbsp;·&nbsp; ${new Date().toLocaleString('en-IN')}
-    ${report.sentToGuardian ? '<br><span style="color:#10b981;font-weight:600">✅ Sent to guardian</span>' : ''}
+  <div class="report-footer">
+    <div>
+      <p class="footer-brand">🌿 ASHRAYA</p>
+      <p style="font-size:11px;color:#9ca3af;margin-top:3px">Intelligent Elder Care Platform</p>
+    </div>
+    <div class="footer-meta">
+      Generated: ${new Date().toLocaleString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}<br/>
+      ${report.sentToGuardian ? '<span style="color:#10b981;font-weight:600">✓ Delivered to Guardian</span>' : 'Guardian delivery: Pending'}
+    </div>
   </div>
+  <p class="confidential">Confidential — For Authorised Caregivers Only · Ashraya Elder Care System</p>
 
 </div>
 </body>

@@ -1,8 +1,8 @@
-﻿import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import useMediaPipe from '../../hooks/useMediaPipe';
 import useVoice from '../../hooks/useVoice';
 import api from '../../services/api';
-import { evaluateExerciseFrame, resolveExerciseProfile } from '../../utils/exerciseEngine';
+import { evaluateExerciseFrame, resolveExerciseProfile, createRepTracker } from '../../utils/exerciseEngine';
 
 const formatTime = (seconds) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
@@ -21,12 +21,12 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
     const [referenceAngle, setReferenceAngle] = useState(null);
 
     const timerRef = useRef(null);
-    const repActiveRef = useRef(false);
+    const repTrackerRef = useRef(createRepTracker());  // cycle-based rep state
     const lastSpokenFeedbackRef = useRef(0);
     const accuracySamplesRef = useRef([]);
 
     const handlePose = useCallback((landmarks) => {
-        const result = evaluateExerciseFrame(landmarks, getAngle, profile);
+        const result = evaluateExerciseFrame(landmarks, getAngle, profile, repTrackerRef.current);
         setFeedback(result.feedback);
         setAccuracy(result.accuracy);
         setStatusLabel(result.status);
@@ -40,20 +40,17 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
             }
         }
 
-        const repQualified = result.repDetected && result.accuracy >= profile.targetAccuracy;
-        if (repQualified && !repActiveRef.current) {
-            repActiveRef.current = true;
+        // Count rep only when the full cycle completes (engine tracks the phase)
+        if (result.repDetected) {
             setReps((current) => {
                 const next = current + 1;
                 speak(next >= targetReps ? 'Final rep complete. Great work.' : `${next} reps done. Keep going.`);
                 return next;
             });
-        } else if (!result.repDetected || result.status === 'incorrect') {
-            repActiveRef.current = false;
         }
 
         const now = Date.now();
-        if (phase === 'active' && now - lastSpokenFeedbackRef.current > 4500 && result.ready) {
+        if (phase === 'active' && now - lastSpokenFeedbackRef.current > 5000 && result.ready) {
             if (result.status === 'incorrect' || result.status === 'adjust') {
                 lastSpokenFeedbackRef.current = now;
                 speak(result.feedback);
@@ -88,7 +85,7 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
 
     const startExercise = () => {
         accuracySamplesRef.current = [];
-        repActiveRef.current = false;
+        repTrackerRef.current = createRepTracker();  // reset cycle state
         setReps(0);
         setElapsedSeconds(0);
         setAccuracy(0);
@@ -128,10 +125,20 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
     const referenceVideo = profile.videos?.[0];
 
     return (
-        <div className="fixed inset-0 z-50 bg-[rgba(6,11,23,0.96)] backdrop-blur-xl">
-            <div className="h-full w-full overflow-y-auto">
-                <div className="mx-auto flex min-h-full w-full max-w-[1440px] flex-col px-4 py-4 lg:px-6">
-                    <div className="flex items-center justify-between rounded-[24px] border border-white/10 bg-white/5 px-5 py-4">
+        <div style={{
+            position: 'fixed', inset: 0, zIndex: 50,
+            background: 'var(--bg-cream)',
+            overflowY: 'auto',
+        }}>
+            <div style={{ width: '100%', minHeight: '100%', overflowY: 'auto' }}>
+                <div style={{ margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%', maxWidth: 1400, padding: '16px' }}>
+                    {/* Header */}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)',
+                        background: 'var(--bg-card)', padding: '16px 24px',
+                        boxShadow: 'var(--shadow-card)',
+                    }}>
                         <div>
                             <p className="eyebrow">Guided Exercise</p>
                             <h2 className="section-title mt-1">{profile.name}</h2>
@@ -155,43 +162,43 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
                     </div>
 
                     {phase === 'intro' ? (
-                        <div className="grid flex-1 gap-4 py-4 lg:grid-cols-[1.2fr_0.8fr]">
-                            <section className="rounded-[28px] border border-white/10 bg-white/5 p-6">
+                        <div style={{ display: 'grid', flex: 1, gap: 16, padding: '16px 0', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))' }}>
+                            <section style={{ borderRadius: 'var(--radius-xl)', border: '1px solid var(--border)', background: 'var(--bg-card)', padding: 24, boxShadow: 'var(--shadow-card)' }}>
                                 <p className="eyebrow">Exercise Flow</p>
                                 <h3 className="section-title mt-2">Reference demo and live pose scoring</h3>
                                 <p className="section-subtitle mt-3">{profile.instruction}</p>
 
-                                <div className="mt-6 grid gap-4 sm:grid-cols-3">
-                                    <div className="glass-panel p-4">
+                                <div style={{ marginTop: 24, display: 'grid', gap: 12, gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                                    <div style={{ background: 'var(--bg-muted)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', padding: 16 }}>
                                         <p className="metric-label">Target Reps</p>
-                                        <p className="metric-inline-value mt-3">{targetReps}</p>
+                                        <p className="metric-inline-value" style={{ marginTop: 8 }}>{targetReps}</p>
                                     </div>
-                                    <div className="glass-panel p-4">
+                                    <div style={{ background: 'var(--bg-muted)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', padding: 16 }}>
                                         <p className="metric-label">Accuracy Goal</p>
-                                        <p className="metric-inline-value mt-3">{profile.targetAccuracy}%</p>
+                                        <p className="metric-inline-value" style={{ marginTop: 8 }}>{profile.targetAccuracy}%</p>
                                     </div>
-                                    <div className="glass-panel p-4">
+                                    <div style={{ background: 'var(--bg-muted)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', padding: 16 }}>
                                         <p className="metric-label">{profile.metricLabel}</p>
-                                        <p className="metric-inline-value mt-3">{profile.idealRange[0]}-{profile.idealRange[1]}°</p>
+                                        <p className="metric-inline-value" style={{ marginTop: 8 }}>{profile.idealRange[0]}-{profile.idealRange[1]}°</p>
                                     </div>
                                 </div>
 
-                                <div className="mt-6 rounded-[24px] border border-white/10 bg-[#050b17] p-3">
+                                <div style={{ marginTop: 24, borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', background: 'var(--bg-muted)', padding: 12 }}>
                                     {referenceVideo ? (
                                         <>
-                                            <div className="overflow-hidden rounded-[20px] border border-white/10">
+                                            <div style={{ overflow: 'hidden', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                                                 <iframe
                                                     src={referenceVideo.embedUrl}
                                                     title={referenceVideo.title}
-                                                    className="aspect-video w-full"
+                                                    style={{ aspectRatio: '16/9', width: '100%', display: 'block' }}
                                                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                                                     allowFullScreen
                                                 />
                                             </div>
-                                            <div className="mt-3 flex items-center justify-between gap-3">
+                                            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                                                 <div>
-                                                    <p className="text-sm font-semibold text-white">{referenceVideo.title}</p>
-                                                    <p className="text-xs muted-text mt-1">Reference movement from the exercise package</p>
+                                                    <p style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-heading)' }}>{referenceVideo.title}</p>
+                                                    <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 2 }}>Reference movement from the exercise package</p>
                                                 </div>
                                                 {profile.videos[1] ? (
                                                     <a
@@ -206,28 +213,26 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
                                             </div>
                                         </>
                                     ) : (
-                                        <div className="glass-panel p-5">
-                                            <p className="text-sm text-white">Reference video unavailable. The module will still use pose-angle scoring live.</p>
+                                        <div style={{ padding: 20 }}>
+                                            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)' }}>Reference video unavailable. The module will still use pose-angle scoring live.</p>
                                         </div>
                                     )}
                                 </div>
                             </section>
 
-                            <section className="rounded-[28px] border border-white/10 bg-white/5 p-6">
+                            <section style={{ borderRadius: 'var(--radius-xl)', border: '1px solid var(--border)', background: 'var(--bg-card)', padding: 24, boxShadow: 'var(--shadow-card)' }}>
                                 <p className="eyebrow">Before You Start</p>
-                                <div className="mt-4 space-y-4">
-                                    <div className="glass-panel p-4">
-                                        <p className="text-sm font-semibold text-white">Camera setup</p>
-                                        <p className="text-sm muted-text mt-2">Place the phone or laptop so your full movement is visible. Sit or stand in the center of the frame.</p>
-                                    </div>
-                                    <div className="glass-panel p-4">
-                                        <p className="text-sm font-semibold text-white">Posture reminder</p>
-                                        <p className="text-sm muted-text mt-2">{profile.postureHint}</p>
-                                    </div>
-                                    <div className="glass-panel p-4">
-                                        <p className="text-sm font-semibold text-white">Safety</p>
-                                        <p className="text-sm muted-text mt-2">Stop immediately if there is pain, dizziness, chest discomfort, or unusual shortness of breath.</p>
-                                    </div>
+                                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    {[
+                                        { title: 'Camera setup', body: 'Place the phone or laptop so your full movement is visible. Sit or stand in the center of the frame.' },
+                                        { title: 'Posture reminder', body: profile.postureHint },
+                                        { title: 'Safety', body: 'Stop immediately if there is pain, dizziness, chest discomfort, or unusual shortness of breath.' },
+                                    ].map((tip) => (
+                                        <div key={tip.title} style={{ padding: 16, borderRadius: 'var(--radius-md)', background: 'var(--bg-muted)', border: '1px solid var(--border)' }}>
+                                            <p style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-heading)', marginBottom: 6 }}>{tip.title}</p>
+                                            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>{tip.body}</p>
+                                        </div>
+                                    ))}
                                 </div>
 
                                 <div className="mt-6 flex flex-wrap gap-3">
@@ -251,8 +256,8 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
                     ) : null}
 
                     {phase === 'active' ? (
-                        <div className="grid flex-1 gap-4 py-4 lg:grid-cols-[0.9fr_1.1fr]">
-                            <section className="rounded-[28px] border border-white/10 bg-white/5 p-4">
+                        <div style={{ display: 'grid', flex: 1, gap: 16, padding: '16px 0', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))' }}>
+                            <section style={{ borderRadius: 'var(--radius-xl)', border: '1px solid var(--border)', background: 'var(--bg-card)', padding: 16, boxShadow: 'var(--shadow-card)' }}>
                                 <div className="flex items-center justify-between gap-3">
                                     <div>
                                         <p className="eyebrow">Reference Coach</p>
@@ -277,27 +282,22 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
                                     )}
                                 </div>
 
-                                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                                    <div className="glass-panel p-4">
-                                        <p className="metric-label">Target Angle</p>
-                                        <p className="metric-inline-value mt-3">{profile.idealRange[0]}-{profile.idealRange[1]}°</p>
-                                    </div>
-                                    <div className="glass-panel p-4">
-                                        <p className="metric-label">Reference Angle</p>
-                                        <p className="metric-inline-value mt-3">{referenceAngle ?? '--'}°</p>
-                                    </div>
-                                    <div className="glass-panel p-4">
-                                        <p className="metric-label">Average Accuracy</p>
-                                        <p className="metric-inline-value mt-3">{avgAccuracy}%</p>
-                                    </div>
-                                    <div className="glass-panel p-4">
-                                        <p className="metric-label">Current Angle</p>
-                                        <p className="metric-inline-value mt-3">{userAngle ?? '--'}°</p>
-                                    </div>
+                                <div style={{ marginTop: 16, display: 'grid', gap: 10, gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                                    {[
+                                        { label: 'Target Angle', value: `${profile.idealRange[0]}-${profile.idealRange[1]}°` },
+                                        { label: 'Reference Angle', value: `${referenceAngle ?? '--'}°` },
+                                        { label: 'Avg Accuracy', value: `${avgAccuracy}%` },
+                                        { label: 'Current Angle', value: `${userAngle ?? '--'}°` },
+                                    ].map((m) => (
+                                        <div key={m.label} style={{ padding: 14, borderRadius: 'var(--radius-md)', background: 'var(--bg-muted)', border: '1px solid var(--border)' }}>
+                                            <p className="metric-label">{m.label}</p>
+                                            <p className="metric-inline-value" style={{ marginTop: 8 }}>{m.value}</p>
+                                        </div>
+                                    ))}
                                 </div>
                             </section>
 
-                            <section className="rounded-[28px] border border-white/10 bg-white/5 p-4">
+                            <section style={{ borderRadius: 'var(--radius-xl)', border: '1px solid var(--border)', background: 'var(--bg-card)', padding: 16 }}>
                                 <div className="relative min-h-[420px] overflow-hidden rounded-[24px] border border-white/10 bg-black">
                                     <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" muted playsInline />
                                     <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
@@ -346,25 +346,22 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
                                     </div>
                                 </div>
 
-                                <div className="mt-4 grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">
-                                    <div className="glass-panel p-4 text-center">
+                                <div style={{ marginTop: 14, display: 'grid', gap: 12, gridTemplateColumns: 'auto 1fr auto', alignItems: 'center' }}>
+                                    <div style={{ padding: '14px 16px', background: 'var(--bg-muted)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', textAlign: 'center', minWidth: 70 }}>
                                         <p className="metric-label">Progress</p>
-                                        <p className="mt-3 text-4xl font-semibold text-white">{reps}</p>
-                                        <p className="text-xs muted-text mt-1">of {targetReps} reps</p>
+                                        <p style={{ marginTop: 8, fontSize: '2.2rem', fontWeight: 700, color: 'var(--teal-deep)', lineHeight: 1 }}>{reps}</p>
+                                        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>of {targetReps} reps</p>
                                     </div>
 
-                                    <div className="glass-panel p-4">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <p className="text-sm font-semibold text-white">Session Progress</p>
-                                            <span className="text-xs muted-text">{formatTime(elapsedSeconds)}</span>
+                                    <div style={{ padding: 14, background: 'var(--bg-muted)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                                            <p style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-heading)' }}>Session Progress</p>
+                                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{formatTime(elapsedSeconds)}</span>
                                         </div>
-                                        <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
-                                            <div
-                                                className="h-full rounded-full bg-[var(--accent-teal)] transition-all"
-                                                style={{ width: `${progress}%` }}
-                                            />
+                                        <div style={{ marginTop: 12, height: 10, borderRadius: 6, background: 'var(--border)', overflow: 'hidden' }}>
+                                            <div style={{ height: '100%', borderRadius: 6, background: 'var(--teal-deep)', width: `${progress}%`, transition: 'width 0.5s ease' }} />
                                         </div>
-                                        <p className="mt-3 text-sm muted-text">The rep counter follows the same angle-difference idea as your Python session tracker.</p>
+                                        <p style={{ marginTop: 8, fontSize: '0.76rem', color: 'var(--text-muted)' }}>Rep counter synced with angle detection.</p>
                                     </div>
 
                                     <button
@@ -380,8 +377,8 @@ const ExerciseModule = ({ task, onComplete, onClose }) => {
                     ) : null}
 
                     {phase === 'done' ? (
-                        <div className="flex flex-1 items-center justify-center py-6">
-                            <section className="w-full max-w-2xl rounded-[28px] border border-white/10 bg-white/5 p-8 text-center">
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 0' }}>
+                            <section style={{ width: '100%', maxWidth: 560, borderRadius: 'var(--radius-xl)', border: '1px solid var(--border)', background: 'var(--bg-card)', padding: 40, textAlign: 'center', boxShadow: 'var(--shadow-card)' }}>
                                 <p className="eyebrow">Exercise Complete</p>
                                 <h2 className="section-title mt-2">Well done.</h2>
                                 <p className="section-subtitle mt-3">The live session matched your reference exercise logic and is ready to be saved.</p>

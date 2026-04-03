@@ -25,9 +25,7 @@ const transcribeAudio = async (req, res) => {
             language
         });
 
-        return res.json({
-            text: result.text || ''
-        });
+        return res.json({ text: result.text || '' });
     } catch (err) {
         console.error('transcribeAudio error:', err.message);
         const status = err.status === 429 ? 429 : 500;
@@ -50,10 +48,17 @@ const respondToElder = async (req, res) => {
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const schedule = await DailySchedule.findOne({ elderId: req.user._id, date: today }).lean();
-        const nextTask = schedule?.tasks
-            ?.filter((task) => task.status === 'pending')
-            .sort((a, b) => String(a.scheduledTime).localeCompare(String(b.scheduledTime)))[0] || null;
+
+        // Fetch full schedule so AI has complete context
+        const schedule = await DailySchedule.findOne({
+            elderId: req.user._id,
+            date: today
+        }).lean();
+
+        const pendingTasks = schedule?.tasks?.filter(t => t.status === 'pending') || [];
+        const nextTask = pendingTasks.sort(
+            (a, b) => String(a.scheduledTime).localeCompare(String(b.scheduledTime))
+        )[0] || null;
 
         let reply;
         try {
@@ -61,13 +66,15 @@ const respondToElder = async (req, res) => {
                 elderName: elder?.name,
                 query,
                 nextTask,
-                moodSignals
+                moodSignals,
+                pendingCount: pendingTasks.length,
+                schedule  // full schedule for rich context
             });
         } catch (err) {
             console.warn('respondToElder AI fallback used:', err.message);
             reply = nextTask
                 ? `I am here with you. Your next task is ${nextTask.title} at ${nextTask.scheduledTime}.`
-                : 'I am here with you. You are doing well, and I can keep helping you through the day.';
+                : 'I am here with you. You are doing well today.';
         }
 
         return res.json({ reply, nextTask });

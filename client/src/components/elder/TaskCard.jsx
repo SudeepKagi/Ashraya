@@ -1,4 +1,4 @@
-﻿// FILE: client/src/components/elder/TaskCard.jsx
+// FILE: client/src/components/elder/TaskCard.jsx
 import { useState, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import api from '../../services/api';
@@ -193,7 +193,15 @@ const TaskCard = ({ task, onUpdate, large = false, prescribedMedicines = [] }) =
                             value={refusalReason}
                             onChange={(e) => setRefusalReason(e.target.value)}
                             placeholder="Share why this task is difficult right now"
-                            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
+                            style={{
+                                width: '100%', padding: '12px 16px',
+                                borderRadius: 'var(--radius-md)',
+                                border: '1.5px solid var(--border)',
+                                background: 'var(--bg-muted)',
+                                color: 'var(--text-heading)',
+                                fontSize: '0.88rem', outline: 'none',
+                                fontFamily: 'inherit',
+                            }}
                             aria-label="Reason for not completing task"
                         />
                         <div className="flex gap-2">

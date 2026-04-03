@@ -23,7 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 
-# FILE: .gitignore
+# FILE: 
+.gitignore
 node_modules/
 .env
 dist/

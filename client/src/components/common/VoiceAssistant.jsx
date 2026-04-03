@@ -25,10 +25,7 @@ const EMERGENCY_PATTERNS = ['help', 'pain', 'fell', 'fall', 'hurt', 'chest', 'br
 const SAD_PATTERNS = ['sad', 'lonely', 'alone', 'tired', 'bored', 'unhappy', 'bad', 'miss', 'cry', 'upset', 'depressed', 'terrible', 'awful', 'worried', 'anxious'];
 const GREETING_PATTERNS = ['hello', 'hi', 'hey', 'good morning', 'good evening', 'good afternoon', 'ashraya'];
 const TIME_PATTERNS = ['what time', 'the time', 'current time', 'tell me the time'];
-const HOW_ARE_YOU_PATTERNS = ['how are you', 'are you okay', 'you good', 'you fine'];
-const JOKE_PATTERNS = ['joke', 'funny', 'laugh', 'make me laugh'];
 const TASK_PATTERNS = ['tasks', 'my tasks', 'pending', 'schedule', 'what do i have'];
-const COMPLIMENT_PATTERNS = ['good job', 'great', 'excellent', 'wonderful', 'nice', 'love you', 'thank you', 'thanks', 'well done'];
 const JOKES = [
     'Why did the scarecrow win an award? Because he was outstanding in his field.',
     'What do you call a bear with no teeth? A gummy bear.',
@@ -87,9 +84,20 @@ const detectMood = (text) => {
     return 'neutral';
 };
 
-const VoiceAssistant = ({ onCommand }) => {
+/* ── Mic icon SVG ── */
+const MicSvg = ({ size = 20, color = 'currentColor' }) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round" style={{ width: size, height: size }}>
+        <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <line x1="12" y1="19" x2="12" y2="23" />
+        <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+);
+
+const VoiceAssistant = ({ onCommand, navMode = false }) => {
     const { settings } = useAccessibility();
-    const [open, setOpen] = useState(true);
+    const [open, setOpen] = useState(false);
     const [response, setResponse] = useState('');
     const [history, setHistory] = useState([]);
     const [working, setWorking] = useState(false);
@@ -275,106 +283,48 @@ const VoiceAssistant = ({ onCommand }) => {
 
     const runGeneralCommand = useCallback(async (rawTranscript) => {
         const command = normalizeTranscript(rawTranscript);
-        const mood = detectMood(command);
 
         if (!command) {
-            await finishInteraction(rawTranscript, 'I did not catch that. Please try again.');
-            return;
-        }
-
-        if (includesAny(command, GREETING_PATTERNS)) {
-            const hour = new Date().getHours();
-            const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-            await finishInteraction(rawTranscript, `${greeting}. I am right here with you. How can I help you?`);
+            await finishInteraction(rawTranscript, 'I did not catch that. Could you say that again?');
             return;
         }
 
         if (includesAny(command, TIME_PATTERNS)) {
-            await finishInteraction(rawTranscript, `The current time is ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`);
+            const t = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+            await finishInteraction(rawTranscript, `The current time is ${t}.`);
             return;
         }
 
-        if (includesAny(command, HOW_ARE_YOU_PATTERNS)) {
-            await finishInteraction(rawTranscript, 'I am doing great, thank you for asking. I am here with you.');
-            return;
-        }
-
-        if (includesAny(command, JOKE_PATTERNS)) {
-            await finishInteraction(rawTranscript, JOKES[Math.floor(Math.random() * JOKES.length)]);
-            return;
-        }
-
-        if (includesAny(command, TASK_PATTERNS) || command.includes('next task')) {
+        if (includesAny(command, TASK_PATTERNS) || command.includes('next task') || command.includes('what is next')) {
             await finishInteraction(rawTranscript, await summarizeTasksForVoice());
-            return;
-        }
-
-        if (includesAny(command, COMPLIMENT_PATTERNS)) {
-            await finishInteraction(rawTranscript, 'Thank you so much. I am always here for you.');
-            return;
-        }
-
-        if (command.includes('what is next')) {
-            const currentSchedule = schedule || await refreshSchedule();
-            const nextTask = currentSchedule?.tasks
-                ?.filter((task) => task.status === 'pending')
-                .sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime))[0];
-
-            if (!nextTask) {
-                await finishInteraction(rawTranscript, 'You have completed all your tasks for today. Well done.');
-                return;
-            }
-
-            await finishInteraction(rawTranscript, `Your next task is ${nextTask.title} at ${nextTask.scheduledTime}.`);
             return;
         }
 
         if (command.includes('took my medicine') || command.includes('medicine taken') || command.includes('took the medicine')) {
             const currentSchedule = schedule || await refreshSchedule();
             const medicineTask = currentSchedule?.tasks
-                ?.filter((task) => task.type === 'medicine' && task.status === 'pending')
+                ?.filter((t) => t.type === 'medicine' && t.status === 'pending')
                 .sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime))[0];
-
             if (!medicineTask) {
                 await finishInteraction(rawTranscript, 'I could not find a pending medicine task right now.');
                 return;
             }
-
             await api.put(`/schedule/task/${medicineTask.taskId}`, { status: 'done', notes: 'Marked done by voice assistant' });
             await refreshSchedule();
-            await finishInteraction(rawTranscript, `${medicineTask.title} has been marked as done.`);
+            await finishInteraction(rawTranscript, `${medicineTask.title} has been marked as done. Well done!`);
             return;
         }
 
-        if (
-            command.includes('tablet') && (command.includes('over') || command.includes('finished') || command.includes('got over') || command.includes('out')) ||
-            command.includes('medicine is over') ||
-            command.includes('medicines are over') ||
-            command.includes('medicine got over') ||
-            command.includes('out of medicine')
-        ) {
-            await api.post('/health/guardian-alert', {
-                category: 'medicine_supply',
-                message: 'Medicine supply is running low or finished. Please refill the tablets soon.'
-            });
-            await finishInteraction(rawTranscript, 'I have sent a medicine refill alert to your guardian.');
-            return;
-        }
-
-        if (includesAny(command, EMERGENCY_PATTERNS) || command.includes('not feeling well') || command.includes('i need help') || command.includes('sos') || command.includes('call guardian')) {
+        if (includesAny(command, EMERGENCY_PATTERNS) && (command.includes('sos') || command.includes('help me') || command.includes('call') || command.includes('emergency') || command.includes('fell'))) {
             await api.post('/health/fall-alert', { type: 'manual_sos', confirmedByElder: true });
-            await finishInteraction(rawTranscript, 'I have alerted your guardian right away. Help is on the way.');
-            return;
-        }
-
-        if (mood === 'sad') {
-            await finishInteraction(rawTranscript, CHEER_RESPONSES[Math.floor(Math.random() * CHEER_RESPONSES.length)]);
+            await finishInteraction(rawTranscript, 'I have alerted your guardian right away. Help is on the way. Please stay calm.');
             return;
         }
 
         const reply = await requestCompanionReply(rawTranscript);
         await finishInteraction(rawTranscript, reply);
     }, [finishInteraction, refreshSchedule, requestCompanionReply, schedule, summarizeTasksForVoice]);
+
 
     const handleVoiceResult = useCallback(async (rawTranscript) => {
         setWorking(true);
@@ -514,124 +464,419 @@ const VoiceAssistant = ({ onCommand }) => {
 
     if (!supported || settings.hearingImpaired) return null;
 
+    /* ── navMode: render as a FAB button in the bottom nav (called from ElderDashboard) ── */
+    if (navMode) {
+        return (
+            <>
+                {/* The FAB itself — ElderDashboard places this in its nav */}
+                <button
+                    id="voice-assistant-fab"
+                    onClick={() => { setOpen((v) => !v); if (listening) stopListening(); }}
+                    aria-label={open ? 'Close voice assistant' : 'Open voice assistant'}
+                    style={{
+                        width: 52, height: 52,
+                        borderRadius: '50%',
+                        background: open
+                            ? 'linear-gradient(135deg, #DC2626, #b91c1c)'
+                            : listening
+                            ? 'linear-gradient(135deg, #DC2626, #b91c1c)'
+                            : 'linear-gradient(135deg, var(--teal-deep), var(--teal-mid))',
+                        border: 'none',
+                        boxShadow: open
+                            ? '0 4px 20px rgba(220,38,38,0.5)'
+                            : '0 4px 20px rgba(0,89,92,0.4)',
+                        cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'background 0.25s, box-shadow 0.25s',
+                        position: 'relative',
+                    }}
+                >
+                    {/* Pulse ring when listening */}
+                    {listening && (
+                        <span style={{
+                            position: 'absolute', inset: -4,
+                            borderRadius: '50%',
+                            border: '2px solid rgba(220,38,38,0.5)',
+                            animation: 'live-pulse 1.1s infinite',
+                        }} />
+                    )}
+                    <MicSvg size={22} color="white" />
+                </button>
+
+                {/* Panel — pops up above the nav */}
+                {open && (
+                    <div style={{
+                        position: 'fixed',
+                        bottom: 80,
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        zIndex: 69,
+                        width: 'min(calc(100vw - 32px), 380px)',
+                        background: 'var(--bg-card)',
+                        border: '1.5px solid var(--border)',
+                        borderRadius: 'var(--radius-xl)',
+                        boxShadow: '0 24px 64px rgba(0,0,0,0.18)',
+                        overflow: 'hidden',
+                        display: 'flex', flexDirection: 'column',
+                    }}>
+                        {/* Teal header */}
+                        <div style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '14px 18px',
+                            background: 'linear-gradient(135deg, var(--teal-deep), var(--teal-mid))',
+                            gap: 12,
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 18 }}>🌿</span>
+                                <div>
+                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', lineHeight: 1 }}>
+                                        Ashraya Assistant
+                                    </p>
+                                    <p style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>
+                                        {provider === 'browser' ? 'Live voice · Browser' : 'Recorded voice fallback'}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => { const n = !assistantEnabled; setAssistantEnabled(n); if (!n) stopListening(); }}
+                                aria-label="Toggle assistant on/off"
+                                style={{
+                                    padding: '5px 13px', borderRadius: 'var(--radius-pill)',
+                                    fontSize: '0.72rem', fontWeight: 700, border: 0,
+                                    background: assistantEnabled ? 'rgba(255,255,255,0.18)' : 'rgba(220,38,38,0.4)',
+                                    color: 'white', cursor: 'pointer', fontFamily: 'inherit',
+                                }}
+                            >
+                                {assistantEnabled ? 'On ✓' : 'Off'}
+                            </button>
+                        </div>
+
+                        {/* Waveform status */}
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: 12,
+                            padding: '11px 16px',
+                            background: 'var(--bg-muted)',
+                            borderBottom: '1px solid var(--border)',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 22 }}>
+                                {[8, 16, 22, 16, 10, 18, 12].map((h, i) => (
+                                    <span key={i} style={{
+                                        display: 'block', width: 3, borderRadius: 2,
+                                        background: listening ? 'var(--teal-deep)' : working ? 'var(--amber-container)' : 'var(--border)',
+                                        height: listening ? `${h}px` : '4px',
+                                        transition: 'height 0.25s, background 0.25s',
+                                        animation: listening ? `wave-bar ${0.4 + i * 0.08}s ease-in-out infinite alternate` : 'none',
+                                    }} />
+                                ))}
+                            </div>
+                            <div>
+                                <p style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-heading)', lineHeight: 1.3 }}>
+                                    {listening ? '🔴 Listening…' : working ? '⏳ Thinking…' : '⚪ Standby'}
+                                </p>
+                                <p style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 1 }}>
+                                    {activePrompt?.type === 'task' ? 'Waiting for task reply'
+                                        : activePrompt?.type === 'checkin' ? 'Check-in active'
+                                            : 'Ready — tap to speak'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Response bubble */}
+                        <div style={{ padding: '10px 14px', minHeight: 56 }}>
+                            <div style={{
+                                padding: '10px 14px',
+                                borderRadius: 'var(--radius-md)',
+                                background: response ? 'var(--teal-light)' : 'var(--bg-muted)',
+                                color: response ? 'var(--teal-deep)' : 'var(--text-muted)',
+                                fontSize: '0.82rem', lineHeight: 1.55,
+                                border: response ? '1px solid rgba(0,109,109,0.15)' : '1px solid var(--border)',
+                            }}>
+                                {response
+                                    ? `🌿 ${response}`
+                                    : 'Hello! I am your Ashraya assistant. I will remind you about tasks, check on your mood, and help whenever you speak.'}
+                            </div>
+                            {transcript ? (
+                                <p style={{ fontSize: '0.75rem', fontStyle: 'italic', color: 'var(--text-muted)', textAlign: 'center', marginTop: 6 }}>
+                                    "{transcript}"
+                                </p>
+                            ) : null}
+                            {error ? (
+                                <p style={{ fontSize: '0.74rem', color: 'var(--red)', marginTop: 6 }}>
+                                    {error.includes('quota') ? 'Voice quota exceeded — browser fallback active.' : `Mic issue: ${error}`}
+                                </p>
+                            ) : null}
+                        </div>
+
+                        {/* Chat history */}
+                        {history.length > 0 ? (
+                            <div style={{
+                                maxHeight: 110, overflowY: 'auto',
+                                padding: '6px 14px 10px',
+                                borderTop: '1px solid var(--border)',
+                                display: 'flex', flexDirection: 'column', gap: 8,
+                            }}>
+                                {[...history].reverse().slice(0, 3).map((item, i) => (
+                                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                        <div style={{
+                                            alignSelf: 'flex-end',
+                                            background: 'var(--bg-muted)', borderRadius: 'var(--radius-md)',
+                                            padding: '5px 10px', fontSize: '0.73rem', color: 'var(--text-body)',
+                                            maxWidth: '86%',
+                                        }}>You: {item.user}</div>
+                                        <div style={{
+                                            alignSelf: 'flex-start',
+                                            background: 'var(--teal-light)', borderRadius: 'var(--radius-md)',
+                                            padding: '5px 10px', fontSize: '0.73rem', color: 'var(--teal-deep)',
+                                            maxWidth: '90%',
+                                        }}>🌿 {item.assistant}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null}
+
+                        {/* Speak button */}
+                        <button
+                            onClick={() => { if (listening) { stopListening(); } else { resetTranscript(); startListening(); } }}
+                            disabled={working || !assistantEnabled}
+                            aria-label={listening ? 'Stop listening' : 'Start listening'}
+                            style={{
+                                height: 50, width: '100%', border: 0, cursor: 'pointer',
+                                background: listening ? '#DC2626' : 'var(--teal-deep)',
+                                color: 'white', fontWeight: 700, fontSize: '0.9rem',
+                                opacity: (working || !assistantEnabled) ? 0.6 : 1,
+                                fontFamily: 'inherit', letterSpacing: '0.02em',
+                                transition: 'background 0.2s',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                            }}
+                        >
+                            {working ? '⏳ Working…' : listening ? '🔴 Stop Listening' : '🎙 Tap to Speak Now'}
+                        </button>
+
+                        {/* Quick commands */}
+                        <div style={{
+                            display: 'flex', flexWrap: 'wrap', gap: 6,
+                            padding: '10px 14px 14px',
+                            background: 'var(--bg-cream)',
+                            borderTop: '1px solid var(--border)',
+                        }}>
+                            {quickCommands.map((cmd) => (
+                                <button
+                                    key={cmd}
+                                    onClick={() => handleVoiceResult(cmd)}
+                                    aria-label={`Quick command: ${cmd}`}
+                                    style={{
+                                        padding: '5px 12px', borderRadius: 'var(--radius-pill)',
+                                        background: 'var(--bg-muted)', color: 'var(--text-body)',
+                                        fontSize: '0.73rem', fontWeight: 600,
+                                        border: '1px solid var(--border)',
+                                        cursor: 'pointer', fontFamily: 'inherit',
+                                        transition: 'background 0.15s',
+                                    }}
+                                >{cmd}</button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </>
+        );
+    }
+
+    /* ── Default (non-navMode): floating pill launcher ── */
     return (
         <>
+            {/* Floating Launcher */}
             <button
-                onClick={() => {
-                    setOpen((value) => !value);
-                    if (listening) {
-                        stopListening();
-                    }
+                id="voice-assistant-launcher"
+                onClick={() => { setOpen((v) => !v); if (listening) stopListening(); }}
+                aria-label={open ? 'Close voice assistant' : 'Open voice assistant'}
+                style={{
+                    position: 'fixed', bottom: 28, left: 24, zIndex: 70,
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '0 20px', height: settings.mobilityImpaired ? 56 : 46,
+                    borderRadius: 'var(--radius-pill)',
+                    background: open ? 'var(--teal-deep)' : 'var(--bg-card)',
+                    border: open ? '2px solid var(--teal-deep)' : '1.5px solid var(--border)',
+                    boxShadow: open ? '0 8px 32px rgba(0,109,109,0.35)' : 'var(--shadow-card)',
+                    cursor: 'pointer', color: open ? 'white' : 'var(--text-body)',
+                    fontFamily: 'inherit', fontSize: '0.85rem', fontWeight: 600,
+                    transition: 'background 0.25s, box-shadow 0.25s, color 0.25s',
+                    whiteSpace: 'nowrap',
                 }}
-                aria-label="Open voice assistant"
-                className={`assistant-launcher ${open ? 'open' : ''} ${settings.mobilityImpaired ? 'large' : ''}`}
             >
-                <span className="assistant-launcher-orb" />
-                <span className="assistant-launcher-label">{open ? 'Close Assistant' : 'Open Assistant'}</span>
+                <span style={{
+                    width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                    background: listening ? '#DC2626' : working ? 'var(--amber-container)' : open ? 'rgba(255,255,255,0.85)' : 'var(--green)',
+                    animation: listening ? 'live-pulse 1.1s infinite' : 'none',
+                    transition: 'background 0.3s',
+                }} />
+                <span>{open ? '✕ Close' : '🎙 Assistant'}</span>
             </button>
 
+            {/* Assistant Panel */}
             {open ? (
-                <div className={`assistant-panel ${settings.audioOnly ? 'audio-mode' : ''}`}>
-                    <div className="assistant-panel-header">
-                        <div>
-                            <p className="text-sm font-semibold text-white">Ashraya Assistant</p>
-                            <p className="text-xs muted-text">
-                                {provider === 'browser'
-                                    ? 'Voice reminders, mood check-ins, and spoken help'
-                                    : provider === 'server'
-                                        ? 'Voice reminders with recorded fallback'
-                                        : 'Spoken reminders, check-ins, and voice help'}
-                            </p>
+                <div style={{
+                    position: 'fixed', bottom: 86, left: 16, zIndex: 69,
+                    width: 'min(calc(100vw - 32px), 400px)',
+                    background: 'var(--bg-card)',
+                    border: '1.5px solid var(--border)',
+                    borderRadius: 'var(--radius-xl)',
+                    boxShadow: '0 24px 64px rgba(0,0,0,0.14)',
+                    overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                }}>
+                    {/* Teal header */}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '14px 18px',
+                        background: 'linear-gradient(135deg, var(--teal-deep), var(--teal-mid))',
+                        gap: 12,
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 18 }}>🌿</span>
+                            <div>
+                                <p style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', lineHeight: 1 }}>
+                                    Ashraya Assistant
+                                </p>
+                                <p style={{ fontSize: '0.71rem', color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>
+                                    {provider === 'browser' ? 'Live voice · Browser' : 'Recorded voice fallback'}
+                                </p>
+                            </div>
                         </div>
                         <button
-                            onClick={() => {
-                                const nextValue = !assistantEnabled;
-                                setAssistantEnabled(nextValue);
-                                if (!nextValue) {
-                                    stopListening();
-                                }
+                            onClick={() => { const n = !assistantEnabled; setAssistantEnabled(n); if (!n) stopListening(); }}
+                            aria-label="Toggle assistant on/off"
+                            style={{
+                                padding: '5px 13px', borderRadius: 'var(--radius-pill)',
+                                fontSize: '0.72rem', fontWeight: 700, border: 0,
+                                background: assistantEnabled ? 'rgba(255,255,255,0.18)' : 'rgba(220,38,38,0.4)',
+                                color: 'white', cursor: 'pointer', fontFamily: 'inherit',
                             }}
-                            className={`assistant-state-pill ${assistantEnabled ? 'on' : 'off'}`}
-                            aria-label="Toggle always listening assistant"
                         >
-                            {assistantEnabled ? 'Assistant On' : 'Assistant Off'}
+                            {assistantEnabled ? 'On ✓' : 'Off'}
                         </button>
                     </div>
 
-                    <div className="assistant-status-panel">
-                        <div className="assistant-status-row">
-                            <span className={`status-badge ${listening ? 'status-normal' : working ? 'status-warning' : 'status-critical'}`}>
-                                <span className="status-dot" />
-                                {listening ? 'Listening' : working ? 'Thinking' : 'Standby'}
-                            </span>
-                            <span className="chart-tooltip text-xs">{activePrompt?.type === 'task' ? 'Task reply pending' : activePrompt?.type === 'checkin' ? 'Check-in pending' : 'Ready for conversation'}</span>
+                    {/* Waveform status row */}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '11px 16px',
+                        background: 'var(--bg-muted)',
+                        borderBottom: '1px solid var(--border)',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 22 }}>
+                            {[8, 16, 22, 16, 10, 18, 12].map((h, i) => (
+                                <span key={i} style={{
+                                    display: 'block', width: 3, borderRadius: 2,
+                                    background: listening ? 'var(--teal-deep)' : working ? 'var(--amber-container)' : 'var(--border)',
+                                    height: listening ? `${h}px` : '4px',
+                                    transition: 'height 0.25s, background 0.25s',
+                                    animation: listening ? `wave-bar ${0.4 + i * 0.08}s ease-in-out infinite alternate` : 'none',
+                                }} />
+                            ))}
                         </div>
-                        <p className="assistant-latest-copy">
-                            {response || 'I am ready to remind, listen, and speak back.'}
-                        </p>
+                        <div>
+                            <p style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-heading)', lineHeight: 1.3 }}>
+                                {listening ? '🔴 Listening…' : working ? '⏳ Thinking…' : '⚪ Standby'}
+                            </p>
+                            <p style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 1 }}>
+                                {activePrompt?.type === 'task' ? 'Waiting for task reply'
+                                    : activePrompt?.type === 'checkin' ? 'Check-in active'
+                                        : 'Ready — tap to speak'}
+                            </p>
+                        </div>
                     </div>
 
-                    <div className="assistant-history">
-                        {activePrompt?.type === 'task' ? (
-                            <p className="assistant-info assistant-warning">
-                                Waiting for task response: say completed, later, or cannot do it.
+                    {/* Latest response bubble */}
+                    <div style={{ padding: '10px 14px', minHeight: 56 }}>
+                        <div style={{
+                            padding: '10px 14px',
+                            borderRadius: 'var(--radius-md)',
+                            background: response ? 'var(--teal-light)' : 'var(--bg-muted)',
+                            color: response ? 'var(--teal-deep)' : 'var(--text-muted)',
+                            fontSize: '0.82rem', lineHeight: 1.55,
+                            border: response ? '1px solid rgba(0,109,109,0.15)' : '1px solid var(--border)',
+                        }}>
+                            {response
+                                ? `🌿 ${response}`
+                                : 'Hello! I am your Ashraya assistant. I will remind you about tasks, check on your mood, and help whenever you speak.'}
+                        </div>
+                        {transcript ? (
+                            <p style={{ fontSize: '0.75rem', fontStyle: 'italic', color: 'var(--text-muted)', textAlign: 'center', marginTop: 6 }}>
+                                "{transcript}"
                             </p>
                         ) : null}
-                        {activePrompt?.type === 'checkin' ? (
-                            <p className="assistant-info assistant-soft">
-                                Waiting for check-in response.
-                            </p>
-                        ) : null}
-                        {history.map((item, index) => (
-                            <div key={index} className="assistant-message-stack">
-                                <p className="assistant-bubble user">You: {item.user}</p>
-                                <p className="assistant-bubble assistant">Assistant: {item.assistant}</p>
-                            </div>
-                        ))}
-                        <p className="assistant-info assistant-neutral">
-                            Spoken reminders stay automatic. Tap anytime to ask for help, your next task, or emotional support.
-                        </p>
                         {error ? (
-                            <p className="text-xs critical-text">
-                                {error.includes('quota')
-                                    ? 'Voice fallback is out of quota. Browser speech listening should still work for live commands.'
-                                    : error.includes('Failed to transcribe audio')
-                                        ? 'Recorded voice fallback failed. Check that the backend is running and the API key is set.'
-                                        : `Mic error: ${error}`}
+                            <p style={{ fontSize: '0.74rem', color: 'var(--red)', marginTop: 6 }}>
+                                {error.includes('quota') ? 'Voice quota exceeded — browser fallback active.' : `Mic issue: ${error}`}
                             </p>
                         ) : null}
                     </div>
 
-                    <button
-                        onClick={() => {
-                            if (listening) {
-                                stopListening();
-                            } else {
-                                resetTranscript();
-                                startListening();
-                            }
-                        }}
-                        aria-label={listening ? 'Stop listening' : 'Start listening'}
-                        className={`assistant-listen-button ${listening ? 'listening' : ''}`}
-                        disabled={working || !assistantEnabled}
-                    >
-                        {working ? 'Working...' : listening ? 'Listening...' : 'Tap to listen now'}
-                    </button>
-
-                    {transcript ? (
-                        <p className="assistant-transcript">"{transcript}"</p>
+                    {/* Chat history */}
+                    {history.length > 0 ? (
+                        <div style={{
+                            maxHeight: 130, overflowY: 'auto',
+                            padding: '6px 14px 10px',
+                            borderTop: '1px solid var(--border)',
+                            display: 'flex', flexDirection: 'column', gap: 8,
+                        }}>
+                            {[...history].reverse().slice(0, 4).map((item, i) => (
+                                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    <div style={{
+                                        alignSelf: 'flex-end',
+                                        background: 'var(--bg-muted)', borderRadius: 'var(--radius-md)',
+                                        padding: '5px 10px', fontSize: '0.74rem', color: 'var(--text-body)',
+                                        maxWidth: '86%',
+                                    }}>You: {item.user}</div>
+                                    <div style={{
+                                        alignSelf: 'flex-start',
+                                        background: 'var(--teal-light)', borderRadius: 'var(--radius-md)',
+                                        padding: '5px 10px', fontSize: '0.74rem', color: 'var(--teal-deep)',
+                                        maxWidth: '90%',
+                                    }}>🌿 {item.assistant}</div>
+                                </div>
+                            ))}
+                        </div>
                     ) : null}
 
-                    <div className="assistant-quick-grid">
-                        {quickCommands.map((command) => (
+                    {/* Speak button */}
+                    <button
+                        onClick={() => { if (listening) { stopListening(); } else { resetTranscript(); startListening(); } }}
+                        disabled={working || !assistantEnabled}
+                        aria-label={listening ? 'Stop listening' : 'Start listening'}
+                        style={{
+                            height: 50, width: '100%', border: 0, cursor: 'pointer',
+                            background: listening ? '#DC2626' : 'var(--teal-deep)',
+                            color: 'white', fontWeight: 700, fontSize: '0.9rem',
+                            opacity: (working || !assistantEnabled) ? 0.6 : 1,
+                            fontFamily: 'inherit', letterSpacing: '0.02em',
+                            transition: 'background 0.2s',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                        }}
+                    >
+                        {working ? '⏳ Working…' : listening ? '🔴 Stop Listening' : '🎙 Tap to Speak Now'}
+                    </button>
+
+                    {/* Quick commands */}
+                    <div style={{
+                        display: 'flex', flexWrap: 'wrap', gap: 6,
+                        padding: '10px 14px 14px',
+                        background: 'var(--bg-cream)',
+                        borderTop: '1px solid var(--border)',
+                    }}>
+                        {quickCommands.map((cmd) => (
                             <button
-                                key={command}
-                                onClick={() => handleVoiceResult(command)}
-                                className="assistant-quick-pill"
-                                aria-label={`Quick command: ${command}`}
-                            >
-                                {command}
-                            </button>
+                                key={cmd}
+                                onClick={() => handleVoiceResult(cmd)}
+                                aria-label={`Quick command: ${cmd}`}
+                                style={{
+                                    padding: '5px 12px', borderRadius: 'var(--radius-pill)',
+                                    background: 'var(--bg-muted)', color: 'var(--text-body)',
+                                    fontSize: '0.74rem', fontWeight: 600,
+                                    border: '1px solid var(--border)',
+                                    cursor: 'pointer', fontFamily: 'inherit',
+                                    transition: 'background 0.15s',
+                                }}
+                            >{cmd}</button>
                         ))}
                     </div>
                 </div>

@@ -49,11 +49,14 @@ const saveCheckin = async (req, res, next) => {
         }
 
         // Recalculate daily mood score from all sessions
+        // AI sentiment score: -1 → 1 mapped to 0 → 10 scale
+        // Voice tone (0–10) acts as a 20% modifier
         const avgSentiment = log.sessions.reduce((s, sess) => s + sess.sentimentScore, 0) / log.sessions.length;
-        const avgVoice = log.sessions.reduce((s, sess) => s + (sess.voiceToneScore || 5), 0) / log.sessions.length;
-        log.dailyMoodScore = Math.min(10, Math.max(0,
-            parseFloat(((avgSentiment + 1) * 2.5 + avgVoice * 0.5).toFixed(1))
-        ));
+        const avgVoice = log.sessions.reduce((s, sess) => s + (sess.voiceToneScore ?? 5), 0) / log.sessions.length;
+        // 80% weight on NLP sentiment, 20% on voice tone
+        const sentimentMapped = (avgSentiment + 1) * 5; // maps [-1,1] → [0,10]
+        const rawScore = sentimentMapped * 0.8 + avgVoice * 0.2;
+        log.dailyMoodScore = Math.min(10, Math.max(1, parseFloat(rawScore.toFixed(1))));
 
         await log.save();
 
