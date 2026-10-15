@@ -4,15 +4,15 @@ Ashraya is a full-stack elder care management platform that connects elders with
 
 ## Table of Contents
 
-- Features
-- Requirements
-- Installation
-- Configuration
-- Usage
-- API Reference
-- Project Structure
-- Tests
-- Seed Data
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [API Reference](#api-reference)
+- [Project Structure](#project-structure)
+- [Tests](#tests)
+- [Seed Data](#seed-data)
 
 ## Features
 
@@ -60,7 +60,7 @@ Copy the example environment file in the `server` directory and fill in your val
 cp server/.env.example server/.env
 ```
 
-Required environment variables for the server:
+### Required Environment Variables
 
 - `PORT`: Application port (default `5000`).
 - `MONGODB_URI`: MongoDB connection string.
@@ -71,7 +71,7 @@ Required environment variables for the server:
 - `OPENAI_TRANSCRIBE_MODEL`: Model for audio transcription (default `gpt-4o-mini-transcribe`).
 - `CLIENT_URL`: Origin URL for Socket.IO CORS (default `http://localhost:5173`).
 
-Optional environment variables:
+### Optional Environment Variables
 
 - `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`: For push notifications.
 - `GROQ_API_KEY`: For GROQ-based services.
